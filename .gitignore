@@ -1,0 +1,10 @@
+# secrets: private keys and the Arkiv Hub access key live only here
+.env
+.env.*
+!.env.example
+
+node_modules/
+dist/
+.vercel/
+*.log
+.DS_Store
