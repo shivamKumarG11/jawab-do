@@ -6,7 +6,7 @@ Jawab Do demonstrates a public deadline clock and department scorecard using **A
 - Friction report: [`arkiv/friction.md`](arkiv/friction.md)
 - Frozen on-chain snapshot: [`arkiv/demo-evidence.json`](arkiv/demo-evidence.json)
 - License: [MIT](LICENSE)
-- Live app: not deployed; do not infer a URL.
+- Live app: <https://jawab-do.onrender.com> (Render Free; first load after idle can take about a minute)
 
 > **Synthetic and unauthenticated demo.** Jawab Do does not submit official RTI applications or verify real-world filing, delivery, replies, or decisions. Departments and topics are generic. Do not enter personal or confidential information. Arkiv entities are public.
 

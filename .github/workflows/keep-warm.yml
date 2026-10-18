@@ -13,11 +13,11 @@ concurrency:
 
 jobs:
   ping:
-    if: vars.LIVE_URL != ''
+    if: true
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      LIVE_URL: ${{ vars.LIVE_URL }}
+      LIVE_URL: ${{ vars.LIVE_URL || 'https://jawab-do.onrender.com' }}
     steps:
       - name: Ping The Render Health Endpoint Until October 24 UTC
         shell: bash
