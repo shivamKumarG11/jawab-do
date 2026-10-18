@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jawab Do · RTI deadline clock on Arkiv</title>
+    <meta name="description" content="A public, tamper-proof deadline clock for India's Right to Information requests, built on Arkiv." />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱</text></svg>" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <h1>Jawab Do <span class="hi">जवाब दो</span></h1>
+        <p class="tag">India's RTI deadline clock. Records nobody can quietly erase.</p>
+      </div>
+      <div id="live" class="live off" title="Arkiv WebSocket entity events">Live: connecting…</div>
+    </header>
+    <div class="banner">
+      Demo on the Arkiv <b>Tiramisu testnet</b>. Every filing is <b>synthetic</b>: no applicant names, contact details or application text are stored anywhere.
+      Departments are generic types, not accusations against real offices.
+    </div>
+
+    <main>
+      <section class="how">
+        <div><b>30 days</b> for a reply <small>s.7(1)</small></div>
+        <div><b>48 hours</b> if life or liberty <small>s.7(1)</small></div>
+        <div><b>No reply = deemed refusal</b> <small>s.7(2)</small></div>
+        <div><b>First appeal</b> within 30 days <small>s.19(1)</small></div>
+        <div><b>Second appeal</b> within 90 days <small>s.19(3)</small></div>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Department scorecard</h2>
+          <p class="muted">Counts only filings whose <code>$creator</code> is a trusted desk wallet. Overdue = awaiting reply with <code>due_at &lt; now</code>.</p>
+          <div id="scorecard">Loading…</div>
+          <details class="q"><summary>Exact Arkiv queries</summary><pre id="scoreQueries"></pre></details>
+        </div>
+
+        <div class="card">
+          <h2>Log an RTI filing <span class="pill">demo</span></h2>
+          <p class="muted">A help desk logs a filing (often made on paper). The relay signs as the trusted filing desk. One atomic batch creates the request and its immutable "filed" event.</p>
+          <form id="fileForm" class="form">
+            <label>State <select name="state" id="fState"></select></label>
+            <label>Department <select name="dept" id="fDept"></select></label>
+            <label>Basis <select name="basis" id="fBasis"></select></label>
+            <label>Topic <select name="category" id="fCat"></select></label>
+            <label>Filed <select name="filedDaysAgo">
+              <option value="0">today</option><option value="10">10 days ago</option><option value="25">25 days ago</option>
+              <option value="33">33 days ago</option><option value="45">45 days ago</option></select></label>
+            <button type="submit">Log filing on Arkiv</button>
+          </form>
+          <div id="fileOut" class="out"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="row between">
+          <h2>Requests</h2>
+          <form id="refForm" class="row"><input id="refIn" placeholder="Find by reference, e.g. JD-BR-4F2K" /><button>Find</button></form>
+        </div>
+        <form id="filters" class="row wrap filters">
+          <select name="state" id="flState"><option value="">All states</option></select>
+          <select name="stage"><option value="">All stages</option><option value="awaiting_reply">Awaiting reply</option>
+            <option value="replied">Replied</option><option value="first_appeal">First appeal</option><option value="second_appeal">Second appeal</option></select>
+          <select name="due"><option value="">Any deadline</option><option value="overdue">Overdue (deemed refused)</option><option value="week">Due in next 7 days</option></select>
+          <select name="category" id="flCat"><option value="">All topics</option></select>
+          <select name="scope"><option value="all">All creators (shows spoofs)</option><option value="trusted">Trusted desks only</option></select>
+        </form>
+        <div id="list" class="list">Loading…</div>
+        <button id="more" class="ghost" hidden>Load more (cursor)</button>
+        <details class="q"><summary>Exact Arkiv query for this list</summary><pre id="listQuery"></pre></details>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Live entity events</h2>
+          <p class="muted">Browser → Arkiv WebSocket directly (<code>watchEntityEvents</code>, no <code>fromBlock</code>). The chain is shared, so we keep events where a trusted desk is the owner.</p>
+          <ul id="feed" class="feed"><li class="muted">Waiting for events…</li></ul>
+        </div>
+        <div class="card">
+          <h2>Verify without us</h2>
+          <p class="muted">Our server is a convenience, not the source of truth. Run the same query straight from your browser against the public Arkiv RPC, or from a terminal with <code>npx tsx scripts/verify.ts</code>.</p>
+          <button id="verifyBtn">Run the overdue query from this browser</button>
+          <div id="verifyOut" class="out"></div>
+          <pre id="verifyCode" class="code"></pre>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="detail"><div id="detailBody"></div><form method="dialog"><button class="ghost">Close</button></form></dialog>
+    <footer>MIT · <a href="https://github.com/shivamKumarG11/jawab-do">source</a> · <a href="https://github.com/shivamKumarG11/jawab-do/blob/main/arkiv/schema.md">data contract</a> · built on Arkiv, the Web3 database</footer>
+    <script type="module" src="/src/web/main.ts"></script>
+  </body>
+</html>
