@@ -2,7 +2,7 @@
 import { createReadStream, existsSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path"
-import { handle } from "./handler"
+import { handle, ingestOnce } from "./handler"
 
 const DIST = join(process.cwd(), "dist")
 const TYPES: Record<string, string> = {
@@ -53,5 +53,9 @@ const server = createServer((req, res) => {
 })
 server.listen(port, "0.0.0.0", () => {
   const address = server.address()
-  console.log(`Jawab Do on :${typeof address === "object" && address ? address.port : port}`)
+  console.log(`Supply Setu on :${typeof address === "object" && address ? address.port : port}`)
+  if (process.env.SKIP_INGEST !== "1") {
+    void ingestOnce()
+    setInterval(() => void ingestOnce(), 3 * 3_600_000).unref()
+  }
 })

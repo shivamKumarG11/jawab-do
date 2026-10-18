@@ -3,112 +3,114 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jawab Do · RTI deadline clock on Arkiv</title>
-    <meta name="description" content="A public RTI deadline clock built on Arkiv, the Web3 database. Synthetic demo on the Tiramisu testnet." />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱</text></svg>" />
+    <title>Supply Setu · India's open supply-chain record on Arkiv</title>
+    <meta name="description" content="Supply Setu: an open, shared record of essential goods in India — origin, custody, shelf life, fair price against official government prices, and recalls. Built on Arkiv, the Web3 database." />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌉</text></svg>" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Tiro+Devanagari+Hindi&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   </head>
   <body>
     <nav class="top">
-      <a class="logo" href="#"><span class="mark">⏱</span> Jawab Do <span class="hi">जवाब दो</span></a>
+      <a class="logo" href="#"><span class="mark">⟷</span> Supply Setu</a>
       <div class="navlinks">
-        <a href="#scoreboard">Scorecard</a><a href="#requests">Requests</a><a href="#verify">Verify</a>
-        <a href="https://github.com/shivamKumarG11/jawab-do" target="_blank" rel="noopener">GitHub</a>
+        <a href="#prices">Govt prices</a><a href="#market">Marketplace</a><a href="#trace">Trace</a><a href="#act">Act as</a><a href="#recalls">Recalls</a><a href="#verify">Verify</a>
       </div>
       <div id="live" class="live off" title="Arkiv WebSocket entity events">Live: connecting…</div>
     </nav>
 
     <header class="hero">
       <div class="hero-text">
-        <p class="eyebrow">Right to Information Act, 2005 · on Arkiv, the Web3 database</p>
-        <h1>The government has 30 days to answer.<br /><em>Now the clock is public.</em></h1>
-        <p class="lede">Jawab Do tracks RTI deadlines as Arkiv entities: records that expire on their own schedule, a timeline nobody can quietly edit, and ownership that moves with the appeal.</p>
+        <p class="eyebrow">Essential goods · India · on Arkiv, the Web3 database</p>
+        <h1>Every batch of essentials,<br /><em>one open record.</em></h1>
+        <p class="lede">Where a packet of dal or a strip of medicine came from, who holds it now, when it expires, whether it was recalled, and whether its price is fair against <b>today's official government price</b>. No company owns the record, so no platform can wall it off.</p>
         <div class="stats">
-          <div><b id="statTotal">–</b><span>trusted filings</span></div>
-          <div class="hot"><b id="statOverdue">–</b><span>deemed refused</span></div>
-          <div><b id="statAwaiting">–</b><span>awaiting reply</span></div>
-          <div><b id="statAppeals">–</b><span>in appeal</span></div>
+          <div><b id="statLots">–</b><span>batches tracked</span></div>
+          <div class="good"><b id="statGenuine">–</b><span>verified genuine</span></div>
+          <div class="hot"><b id="statFake">–</b><span>counterfeit flagged</span></div>
+          <div><b id="statOffers">–</b><span>live offers</span></div>
+          <div class="hot"><b id="statOver">–</b><span>priced &gt;20% above govt</span></div>
+          <div class="hot"><b id="statRecalls">–</b><span>active recalls</span></div>
         </div>
       </div>
       <div class="pillars">
-        <div class="pillar"><span class="ico">⌛</span><b>Entity Expiration</b><p>Each request is kept for its ordinary appeal window; timeline events for a year.</p></div>
-        <div class="pillar"><span class="ico">🔒</span><b>Burn-owned timeline</b><p>Every event is readonly and handed to <code>0x…dEaD</code> in the same batch. Even we can't edit it.</p></div>
-        <div class="pillar"><span class="ico">🪪</span><b><code>$creator</code> trust</b><p>Spoofs can copy every attribute, but not the creator. The scorecard counts trusted desks only.</p></div>
-        <div class="pillar"><span class="ico">⇄</span><b>Ownership on appeal</b><p>Second appeal moves <code>$owner</code> to the legal-aid desk; the creator never changes.</p></div>
+        <div class="pillar"><span class="ico">🏭</span><b>Origin can't be faked</b><p>Every batch carries the wallet that created it (<code>$creator</code>). A copied brand made by an unlicensed wallet is flagged counterfeit.</p></div>
+        <div class="pillar"><span class="ico">🤝</span><b>Custody = ownership</b><p>Selling stock hands the batch record to the buyer (<code>$owner</code>). Split, sold and recalled steps are readonly and burned.</p></div>
+        <div class="pillar"><span class="ico">⌛</span><b>Things expire on their own</b><p>A batch lives until its best-before date, an offer for 48 h, a price for 48 h, a licence for a year. Stale data disappears by itself.</p></div>
+        <div class="pillar"><span class="ico">🔓</span><b>Open to every app</b><p>Any seller app, logistics firm or regulator reads the same records straight from Arkiv. Recalls arrive live over WebSocket.</p></div>
       </div>
     </header>
 
     <div class="banner">
-      <b>Synthetic demo</b> on the Arkiv Tiramisu testnet. No applicant names, contact details or application text are stored. Departments are generic types, not real offices. This app does not submit official RTIs or verify real-world filings.
+      <b>Real:</b> official daily retail prices from the Department of Consumer Affairs (<a id="docaLink" href="https://fcainfoweb.nic.in/Reports/DB/DBprices.aspx" target="_blank" rel="noopener">fcainfoweb.nic.in</a>).
+      <b>Synthetic:</b> every company, licence, batch and trade is demo data on the Arkiv Tiramisu testnet. Not a real marketplace.
     </div>
 
     <main>
-      <section class="how">
-        <div class="step"><i>1</i><b>30 days</b><span>to reply · s.7(1)</span></div>
-        <div class="step"><i>2</i><b>48 hours</b><span>if life or liberty · s.7(1)</span></div>
-        <div class="step bad-step"><i>3</i><b>Silence</b><span>= deemed refusal · s.7(2)</span></div>
-        <div class="step"><i>4</i><b>First appeal</b><span>within 30 days · s.19(1)</span></div>
-        <div class="step"><i>5</i><b>Second appeal</b><span>within 90 days · s.19(3)</span></div>
+      <section class="card" id="prices">
+        <div class="card-head wrap"><h2>Today's official prices <small class="muted" id="priceDate"></small></h2>
+          <div class="row wrap"><select id="priceCat"><option value="">All categories</option></select><span class="pill">createdBy(oracle) · expires in 48 h</span></div></div>
+        <p class="muted">All-India average retail prices published daily by the Department of Consumer Affairs, Price Monitoring Division. Our oracle posts them to Arkiv; each day's price expires by itself after 48 hours, so only current prices are ever shown.</p>
+        <div id="priceGrid" class="price-grid">Loading…</div>
+        <div id="mandi"></div>
+        <details class="q"><summary>Exact Arkiv query</summary><pre id="priceQuery"></pre></details>
       </section>
 
-      <section class="grid two" id="scoreboard">
-        <div class="card">
-          <div class="card-head"><h2>Department scorecard</h2><span class="pill">createdBy(desk)</span></div>
-          <p class="muted">Counts only filings whose <code>$creator</code> is the trusted desk. Overdue = awaiting reply with <code>due_at &lt; now</code>.</p>
-          <div id="scorecard" class="scroll">Loading…</div>
-          <details class="q"><summary>Exact Arkiv queries</summary><pre id="scoreQueries"></pre></details>
-        </div>
-
-        <div class="card accent">
-          <div class="card-head"><h2>Log an RTI filing</h2><span class="pill">demo</span></div>
-          <p class="muted">A help desk logs a filing. One atomic batch creates the request and its readonly "filed" event, burned in the same transaction.</p>
-          <form id="fileForm" class="form">
-            <label>State <select name="state" id="fState"></select></label>
-            <label>Department <select name="dept" id="fDept"></select></label>
-            <label>Basis <select name="basis" id="fBasis"></select></label>
-            <label>Topic <select name="category" id="fCat"></select></label>
-            <label class="full">Filed <select name="filedDaysAgo">
-              <option value="0">today</option><option value="10">10 days ago</option><option value="25">25 days ago</option>
-              <option value="33">33 days ago</option><option value="45">45 days ago</option></select></label>
-            <button type="submit">Log filing on Arkiv →</button>
-          </form>
-          <div id="fileOut" class="out"></div>
-        </div>
-      </section>
-
-      <section class="card" id="requests">
-        <div class="card-head wrap">
-          <h2>Requests</h2>
-          <form id="refForm" class="row search"><input id="refIn" placeholder="Find by reference, e.g. JD-BR-4F2K" /><button>Find</button></form>
-        </div>
-        <form id="filters" class="row wrap filters">
-          <select name="state" id="flState"><option value="">All states</option></select>
-          <select name="stage"><option value="">All stages</option><option value="awaiting_reply">Awaiting reply</option>
-            <option value="replied">Replied</option><option value="first_appeal">First appeal</option><option value="second_appeal">Second appeal</option></select>
-          <select name="due"><option value="">Any deadline</option><option value="overdue">Overdue (deemed refused)</option><option value="week">Due in next 7 days</option></select>
-          <select name="category" id="flCat"><option value="">All topics</option></select>
-          <select name="scope"><option value="all">All creators (shows spoofs)</option><option value="trusted">Trusted desks only</option></select>
+      <section class="card" id="market">
+        <div class="card-head wrap"><h2>Marketplace</h2>
+          <div class="row wrap"><label class="inline">Buying as <select id="buyAs"><option value="retailer">Retailer</option><option value="distributor">Distributor</option></select></label></div></div>
+        <form id="offerFilters" class="row wrap filters">
+          <select name="category" id="ofCat"><option value="">All categories</option></select>
+          <select name="price"><option value="">Any price</option><option value="overpriced">Overpriced (&gt;20% above govt)</option><option value="fair">Fair (≤20% above govt)</option></select>
+          <select name="state"><option value="">All states</option><option value="BR">Bihar</option><option value="MP">Madhya Pradesh</option><option value="GJ">Gujarat</option></select>
         </form>
-        <div id="list" class="list">Loading…</div>
-        <button id="more" class="ghost" hidden>Load more (cursor)</button>
-        <details class="q"><summary>Exact Arkiv query for this list</summary><pre id="listQuery"></pre></details>
+        <div id="offers" class="list">Loading…</div>
+        <button id="moreOffers" class="ghost" hidden>Load more (cursor)</button>
+        <div id="buyOut" class="out"></div>
+        <details class="q"><summary>Exact Arkiv query (numeric range on markup_bp)</summary><pre id="offerQuery"></pre></details>
+      </section>
+
+      <section class="grid two" id="trace">
+        <div class="card">
+          <div class="card-head"><h2>Trace a product</h2><span class="pill">customer view</span></div>
+          <p class="muted">Type the batch number printed on the pack (try <a href="#" data-find="ANN-TUR1-B2611">ANN-TUR1-B2611</a>: one genuine, one fake) or paste a batch key.</p>
+          <form id="findForm" class="row search"><input id="findIn" placeholder="Batch number, e.g. JVN-PCM-24A17" /><button>Trace</button></form>
+          <div id="findOut" class="list one"></div>
+        </div>
+        <div class="card dark" id="recalls">
+          <div class="card-head"><h2>Recalls</h2><span class="pill">live</span></div>
+          <p class="muted">A recall from the regulator or the product's own maker flags every piece of that batch, wherever it now sits.</p>
+          <ul id="recallList" class="feed"><li class="muted">Loading…</li></ul>
+        </div>
+      </section>
+
+      <section class="card accent" id="act">
+        <div class="card-head wrap"><h2>Act as a business</h2><span class="pill">demo relay · each action = 1 atomic transaction</span></div>
+        <p class="muted">Pick a role. The demo server signs with that role's testnet wallet. In production each business signs with its own wallet.</p>
+        <div class="tabs" id="roleTabs"></div>
+        <div id="rolePanel" class="role-panel">Loading…</div>
+        <div id="actOut" class="out"></div>
       </section>
 
       <section class="grid two" id="verify">
         <div class="card dark">
           <div class="card-head"><h2>Live entity events</h2><span class="pill">WebSocket</span></div>
-          <p class="muted">Browser → Arkiv WebSocket directly (<code>watchEntityEvents</code>, no <code>fromBlock</code>). We keep events where a trusted desk is the owner.</p>
+          <p class="muted">Browser → Arkiv WebSocket directly (<code>watchEntityEvents</code>, no <code>fromBlock</code>), filtered to Supply Setu wallets.</p>
           <ul id="feed" class="feed"><li class="muted">Waiting for events…</li></ul>
         </div>
         <div class="card">
           <div class="card-head"><h2>Verify without us</h2><span class="pill">no backend</span></div>
-          <p class="muted">Our server is a convenience, not the source of truth. Run the same query from your browser against the public Arkiv RPC, or from a terminal with <code>npm run verify</code>.</p>
-          <button id="verifyBtn">Run the overdue query from this browser</button>
+          <p class="muted">Our server is a convenience, not the source of truth. Query Arkiv straight from this browser for every offer priced more than 20% above the official price.</p>
+          <button id="verifyBtn">Run the overpriced-offers query from this browser</button>
           <div id="verifyOut" class="out"></div>
           <pre id="verifyCode" class="code"></pre>
         </div>
+      </section>
+
+      <section class="card" id="registry">
+        <div class="card-head"><h2>Licence registry</h2><span class="pill">createdBy(regulator) · expires with the licence</span></div>
+        <p class="muted">Only businesses with a live licence entry count as verified. When a licence lapses, its record expires and that wallet's new batches stop verifying.</p>
+        <div id="participants" class="scroll">Loading…</div>
       </section>
     </main>
 

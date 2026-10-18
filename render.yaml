@@ -3,17 +3,30 @@ services:
     name: jawab-do
     runtime: node
     plan: free
+    region: singapore
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: 22.20.0
+      - key: GLOBAL_WRITES_PER_DAY
+        value: "400"
       - key: ARKIV_ACCESS_KEY
         sync: false
-      - key: DESK_KEY
+      - key: ORACLE_KEY
         sync: false
-      - key: LEGAL_AID_KEY
+      - key: REGULATOR_KEY
         sync: false
-      - key: GLOBAL_WRITES_PER_DAY
-        value: "300"
+      - key: MAKER_FOOD_KEY
+        sync: false
+      - key: MAKER_PHARMA_KEY
+        sync: false
+      - key: DISTRIBUTOR_KEY
+        sync: false
+      - key: RETAILER_KEY
+        sync: false
+      - key: DATA_GOV_IN_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false

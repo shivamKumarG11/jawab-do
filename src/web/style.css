@@ -149,3 +149,30 @@ footer { text-align: center; color: var(--muted); padding: 28px; font-size: .82r
 .grid.two { align-items: start; }
 .logo { white-space: nowrap; }
 @media (max-width: 560px) { .logo .hi { display: none; } }
+
+/* ---- Supply Setu additions ---- */
+.stats { grid-template-columns: repeat(3, 1fr); }
+.stats .good { background: rgba(19, 122, 75, .2); border-color: rgba(95, 224, 160, .35); } .stats .good b { color: #5fe0a0; }
+.price-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
+.price { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 2px; }
+.price span { font-size: .8rem; color: var(--ink2); font-weight: 500; }
+.price b { font-family: Fraunces, serif; font-size: 1.35rem; } .price b small { font-family: Inter, sans-serif; font-size: .7rem; color: var(--muted); font-weight: 400; }
+.price > small { font-size: .72rem; }
+.tag { display: inline-block; font-size: .7rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: #efeadf; color: var(--ink2); white-space: nowrap; }
+.ok-tag { background: var(--green-soft); color: var(--green); } .bad-tag { background: var(--red-soft); color: var(--red); }
+.money { font-family: Fraunces, serif; font-size: 1.4rem; }
+.big { font-weight: 600; } .gap { gap: 8px; } .price-line { align-items: baseline; }
+.req.recalled { border: 2px solid var(--red); box-shadow: 0 0 0 4px var(--red-soft); }
+.req form input { width: 92px; padding: 7px 9px; font-size: .85rem; } .req form button { padding: 7px 12px; font-size: .82rem; }
+.list.one { grid-template-columns: 1fr; margin-top: 14px; }
+.inline { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); }
+.verdict { border-radius: 12px; padding: 12px 14px; margin: 10px 0; font-weight: 600; }
+.verdict ul { margin: 6px 0 0; padding-left: 18px; font-weight: 400; font-size: .88rem; }
+.verdict.good { background: var(--green-soft); color: var(--green); } .verdict.bad { background: var(--red-soft); color: var(--red); }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.tab { background: #efeadf; color: var(--ink2); padding: 8px 14px; border-radius: 999px; font-size: .85rem; }
+.tab:hover { background: #e5ddcd; color: var(--ink); } .tab.on { background: var(--ink); color: #fff; }
+.role-panel h3 { font-size: 1rem; margin: 18px 0 10px; } .role-head { margin: 4px 0 10px; }
+.toast { position: fixed; right: 20px; bottom: 20px; z-index: 50; background: var(--red); color: #fff; padding: 14px 18px; border-radius: 12px; box-shadow: var(--shadow); font-weight: 600; animation: slide .3s ease-out; }
+.card.dark .feed li small { color: #9a958a; }
+@media (max-width: 560px) { .stats { grid-template-columns: 1fr 1fr; } }

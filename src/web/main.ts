@@ -1,27 +1,22 @@
 import "./style.css"
-import { createPublicClient, createWalletClient } from "@arkiv-network/sdk"
-import { str, u64 } from "@arkiv-network/sdk/attr"
+import { createPublicClient } from "@arkiv-network/sdk"
+import { i32, str } from "@arkiv-network/sdk/attr"
 import { tiramisu } from "@arkiv-network/sdk/chains"
-import { eq, lt } from "@arkiv-network/sdk/query"
-import { custom, http, webSocket, type Hex } from "viem"
-import { escalateSecondAppeal, fileFirstAppeal, keepAlive, markReplied } from "../shared/ops"
+import { eq, gt } from "@arkiv-network/sdk/query"
+import { http, webSocket, type Hex } from "viem"
 import { collectPages } from "../shared/pages"
 import {
-  BASIS, BURN, CATEGORIES, PROJECT, STAGES, authorityLabel, isOverdue,
-  type EventView, type RequestView,
-} from "../shared/rti"
+  BURN, CATEGORIES, OVERPRICED_BP, PROJECT, rupees, type LotView, type MoveView, type OfferView, type ParticipantView,
+  type PriceView, type ProductView, type RecallView, type RoleId,
+} from "../shared/setu"
 
-type Config = {
-  explorer: string; wsUrl: string; desk: Hex; legalAid: Hex; writesEnabled: boolean; usingAccessKey: boolean
-  states: Record<string, string>; departments: Record<string, { label: string; level: string }>
-}
+type Role = { address: Hex; role: string; name: string; state: string; canWrite: boolean }
+type Config = { explorer: string; wsUrl: string; usingAccessKey: boolean; mandi: boolean; docaUrl: string; roles: Record<RoleId, Role> }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
-const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!)
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!)
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
 const DAY = 86_400_000
-
 let cfg: Config
 const browserPub = createPublicClient({ chain: tiramisu, transport: http() })
 
@@ -31,333 +26,273 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   if (!r.ok) throw new Error(j.error ?? r.statusText)
   return j as T
 }
-
 const addrLink = (a: string) => `<a href="${cfg.explorer}/address/${esc(a)}" target="_blank" rel="noopener">${esc(short(a))}</a>`
 const txLink = (h: string) => `<a href="${cfg.explorer}/tx/${esc(h)}" target="_blank" rel="noopener">${esc(short(h))}</a>`
+const roleEntry = (a: string) => Object.entries(cfg.roles).find(([, r]) => r.address.toLowerCase() === a.toLowerCase())
 const who = (a: string) => {
-  const l = a.toLowerCase()
-  if (l === cfg.desk.toLowerCase()) return `filing desk ${addrLink(a)}`
-  if (l === cfg.legalAid.toLowerCase()) return `legal-aid desk ${addrLink(a)}`
-  if (l === BURN.toLowerCase()) return `nobody (burn address ${addrLink(a)})`
-  return `wallet ${addrLink(a)}`
+  if (a.toLowerCase() === BURN.toLowerCase()) return `nobody (burn ${addrLink(a)})`
+  const r = roleEntry(a)
+  return r ? `<b>${esc(r[1].name)}</b> ${addrLink(a)}` : `unknown wallet ${addrLink(a)}`
+}
+const days = (ms: number) => { const d = Math.round(ms / DAY); return Math.abs(d) >= 1 ? `${d} days` : `${Math.max(0, Math.round(ms / 3_600_000))} h` }
+const pct = (bp: number) => `${bp > 0 ? "+" : ""}${(bp / 100).toFixed(0)}%`
+const catLabel = (c: string) => CATEGORIES[c] ?? c
+const verdictBadge = (v?: { genuine: boolean }) => (v ? (v.genuine ? `<span class="tag ok-tag">✔ Genuine</span>` : `<span class="tag bad-tag">⚠ Counterfeit / unverified</span>`) : "")
+const priceBadge = (o: { markupBp: number; refPricePaise: number }) =>
+  !o.refPricePaise ? `<span class="tag">no govt price (medicine)</span>`
+    : o.markupBp > OVERPRICED_BP ? `<span class="tag bad-tag">${pct(o.markupBp)} vs govt</span>`
+    : `<span class="tag ok-tag">${pct(o.markupBp)} vs govt</span>`
+
+// ---------- stats ----------
+async function loadStats() {
+  const s = await api<{ lots: number; genuine: number; counterfeit: number; offers: number; overpriced: number; recalls: number }>("/api/stats")
+  $("statLots").textContent = String(s.lots); $("statGenuine").textContent = String(s.genuine); $("statFake").textContent = String(s.counterfeit)
+  $("statOffers").textContent = String(s.offers); $("statOver").textContent = String(s.overpriced); $("statRecalls").textContent = String(s.recalls)
 }
 
-function span(ms: number) {
-  const a = Math.abs(ms)
-  if (a >= 2 * DAY) return `${Math.floor(a / DAY)} days`
-  const h = Math.floor(a / 3_600_000)
-  const m = Math.floor((a % 3_600_000) / 60_000)
-  return h ? `${h} h ${m} min` : `${m} min`
+// ---------- official prices ----------
+let prices: PriceView[] = []
+async function loadPrices() {
+  const r = await api<{ items: PriceView[]; query: string }>("/api/prices")
+  prices = r.items
+  $("priceQuery").textContent = r.query
+  $("priceDate").textContent = prices[0] ? `· ${new Date(prices[0].date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}` : ""
+  renderPrices()
+  if (cfg.mandi) {
+    const m = await api<{ items: PriceView[] }>("/api/prices?source=agmarknet")
+    $("mandi").innerHTML = m.items.length ? `<h3>Wholesale mandi prices <small class="muted">Agmarknet via data.gov.in · ₹ per kg (modal)</small></h3><div class="price-grid">${m.items.slice(0, 18).map((p) => `<div class="price"><span>${esc(p.label)}</span><b>${rupees(p.pricePaise)}</b><small>${esc(p.state ?? "")} · ${esc(p.date)}</small></div>`).join("")}</div>` : ""
+  }
+}
+function renderPrices() {
+  const cat = $<HTMLSelectElement>("priceCat").value
+  const list = prices.filter((p) => !cat || p.category === cat)
+  $("priceGrid").innerHTML = list.length ? list.map((p) => {
+    const t = p.trend1mBp ?? 0
+    return `<div class="price"><span>${esc(p.label)}</span><b>${rupees(p.pricePaise)}<small> / ${esc(p.unit)}</small></b>
+      <small class="${t > 300 ? "bad" : t < -300 ? "ok" : "muted"}">${t > 0 ? "▲" : t < 0 ? "▼" : "•"} ${pct(t)} in 1 month${p.trend1yBp !== undefined ? ` · ${pct(p.trend1yBp)} in 1 year` : ""}</small></div>`
+  }).join("") : `<p class="muted">No official prices posted yet.</p>`
 }
 
-function clock(r: RequestView) {
-  const now = Date.now()
-  if (isOverdue(r, now))
-    return `<span class="bad">Deemed refused · overdue by ${span(now - r.dueAt)}</span> <small>s.7(2)</small>`
-  if (r.stage === "awaiting_reply") return `<span class="${r.dueAt - now < 3 * DAY ? "warn" : "ok"}">Reply due in ${span(r.dueAt - now)}</span>`
-  if (r.stage === "first_appeal" && r.faaDueAt)
-    return r.faaDueAt < now ? `<span class="bad">Appeal decision overdue by ${span(now - r.faaDueAt)}</span>` : `<span class="ok">Appeal decision due in ${span(r.faaDueAt - now)}</span>`
-  if (r.stage === "replied" && r.appealBy) return `<span class="ok">Appeal possible for ${span(r.appealBy - now)}</span>`
-  return `<span class="ok">${esc(STAGES[r.stage] ?? r.stage)}</span>`
-}
-
-const lifetime = (r: { expiresAtMs?: number; expiresAt: string }) =>
-  r.expiresAtMs ? `Record lives ${span(r.expiresAtMs - Date.now())} more (block ${esc(r.expiresAt)})` : `Expires at block ${esc(r.expiresAt)}`
-
-// ---------- Scorecard ----------
-async function loadScorecard() {
-  const s = await api<{ rows: { authority: string; total: number; overdue: number; awaiting: number; replied: number; appeals: number }[]; queries: Record<string, string> }>("/api/scorecard")
-  $("scoreQueries").textContent = `// all trusted requests\n${s.queries.all}\n\n// overdue (numeric range on due_at)\n${s.queries.overdue}`
-  const sum = (k: "total" | "overdue" | "awaiting" | "appeals") => s.rows.reduce((a, r) => a + r[k], 0)
-  $("statTotal").textContent = String(sum("total"))
-  $("statOverdue").textContent = String(sum("overdue"))
-  $("statAwaiting").textContent = String(sum("awaiting"))
-  $("statAppeals").textContent = String(sum("appeals"))
-  $("scorecard").innerHTML = s.rows.length
-    ? `<table><thead><tr><th>Public authority</th><th>Filings</th><th>Overdue</th><th>Awaiting</th><th>Replied</th><th>Appeals</th></tr></thead><tbody>${s.rows
-        .map((r) => `<tr><td>${esc(authorityLabel(r.authority))}<div class="bar"><i style="width:${Math.round((100 * r.overdue) / Math.max(1, r.total))}%"></i></div></td><td>${r.total}</td><td class="${r.overdue ? "bad" : "muted"}">${r.overdue}</td><td>${r.awaiting}</td><td>${r.replied}</td><td>${r.appeals}</td></tr>`)
-        .join("")}</tbody></table>`
-    : `<p class="muted">No filings yet.</p>`
-}
-
-// ---------- List ----------
-let cursor: string | null = null
-let asOf: number | undefined
-function filterQs(extra: Record<string, string> = {}) {
-  const fd = new FormData($<HTMLFormElement>("filters"))
-  const p = new URLSearchParams()
-  for (const [k, v] of fd) if (v) p.set(k, String(v))
-  for (const [k, v] of Object.entries(extra)) p.set(k, v)
-  return p.toString()
-}
-
-const card = (r: RequestView) => `
-  <article class="req ${r.trusted ? "" : "untrusted"}" data-key="${esc(r.key)}">
-    <div class="row between"><b>${esc(r.ref)}</b><span class="stage s-${esc(r.stage)}">${esc(STAGES[r.stage] ?? r.stage)}</span></div>
-    <div>${esc(authorityLabel(r.authority))} · ${esc(CATEGORIES[r.category] ?? r.category)}</div>
-    <div class="muted">${esc(r.summary ?? "")}</div>
-    <div>${clock(r)}</div>
-    <div class="muted small">${esc(BASIS[r.basis]?.label ?? r.basis)} · filed ${new Date(r.filedAt).toLocaleDateString("en-IN")} · ${lifetime(r)}</div>
-    ${r.trusted ? `<div class="small">✔ Created by trusted ${who(r.creator)}</div>` : `<div class="small badge-bad">⚠ Unverified creator ${addrLink(r.creator)}: not counted</div>`}
+// ---------- marketplace ----------
+let offerCursor: string | null = null
+const offerCard = (o: OfferView) => `
+  <article class="req ${o.verdict?.genuine === false ? "untrusted" : ""} ${o.recalled ? "recalled" : ""}">
+    <div class="row between"><b>${esc(o.sku)}</b>${priceBadge(o)}</div>
+    <div class="big">${esc(o.brand)} · ${esc(catLabel(o.category))}</div>
+    <div class="row between price-line"><span><b class="money">${rupees(o.unitPricePaise)}</b> / unit</span>${o.refPricePaise ? `<span class="muted small">govt avg ${rupees(o.refPricePaise)}</span>` : ""}</div>
+    <div class="small">${o.qty} units · seller ${who(o.seller)} · ${esc(o.state)}</div>
+    <div class="row wrap gap">${verdictBadge(o.verdict)}${o.recalled ? `<span class="tag bad-tag">⛔ Recalled batch</span>` : ""}<span class="tag">offer ends in ${days((o.expiresAtMs ?? 0) - Date.now())}</span></div>
+    ${o.verdict && !o.verdict.genuine ? `<div class="small badge-bad">${esc(o.verdict.reasons[0] ?? "")}</div>` : ""}
+    <div class="row gap"><button data-buy="${esc(o.key)}" ${o.recalled ? "disabled" : ""}>Buy</button><button class="ghost" data-trace="${esc(o.lot)}">Trace</button></div>
   </article>`
-
-async function loadList(append = false) {
-  if (!append) asOf = undefined
-  const extra = append && cursor ? { cursor, ...(asOf === undefined ? {} : { asOf: String(asOf) }) } : {}
+async function loadOffers(append = false) {
+  const p = new URLSearchParams()
+  for (const [k, v] of new FormData($<HTMLFormElement>("offerFilters"))) if (v) p.set(k, String(v))
+  if (append && offerCursor) p.set("cursor", offerCursor)
   try {
-    const qs = filterQs(extra)
-    const res = await api<{ items: RequestView[]; cursor: string | null; query: string; asOf: number }>(`/api/requests?${qs}`)
-    cursor = res.cursor
-    asOf = res.asOf
-    $("more").hidden = !cursor
-    $("listQuery").textContent = res.query
-    const html = res.items.map(card).join("")
-    if (append) $("list").insertAdjacentHTML("beforeend", html)
-    else $("list").innerHTML = html || `<p class="muted">No matching requests.</p>`
-  } catch (e) {
-    cursor = null
-    asOf = undefined
-    $("more").hidden = true
-    const error = `<p class="bad">${esc((e as Error).message)}</p>`
-    if (append) $("list").insertAdjacentHTML("beforeend", error)
-    else $("list").innerHTML = error
-  }
+    const r = await api<{ items: OfferView[]; cursor: string | null; query: string }>(`/api/offers?${p}`)
+    offerCursor = r.cursor; $("moreOffers").hidden = !r.cursor; $("offerQuery").textContent = r.query
+    const html = r.items.map(offerCard).join("")
+    if (append) $("offers").insertAdjacentHTML("beforeend", html); else $("offers").innerHTML = html || `<p class="muted">No live offers match.</p>`
+  } catch (e) { $("offers").innerHTML = `<p class="bad">${esc((e as Error).message)}</p>` }
 }
 
-// ---------- Detail ----------
-async function openDetail(k: string) {
-  const d = await api<{ request: RequestView & { overdue: boolean }; events: EventView[]; query: string }>(`/api/request/${k}`)
-  const r = d.request
-  const owner = r.owner.toLowerCase()
-  const relayOwned = owner === cfg.desk.toLowerCase() || owner === cfg.legalAid.toLowerCase()
-  const can = {
-    reply: r.stage === "awaiting_reply",
-    appeal: r.stage === "replied" || r.overdue,
-    escalate: r.stage === "first_appeal",
-    hearing: r.stage === "second_appeal" && owner === cfg.legalAid.toLowerCase(),
-    handover: owner === cfg.desk.toLowerCase(),
-  }
+// ---------- trace ----------
+function lotRow(l: LotView) {
+  return `<article class="req ${l.verdict?.genuine === false ? "untrusted" : ""} ${l.recalled?.length ? "recalled" : ""}" data-trace="${esc(l.key)}">
+    <div class="row between"><b>${esc(l.batch)}</b>${verdictBadge(l.verdict)}</div>
+    <div class="big">${esc(l.brand)} · ${esc(l.sku)}</div>
+    <div class="small">${l.qty} × ${esc(l.unit)} · held by ${who(l.owner)}</div>
+    <div class="small muted">best before ${new Date(l.bestBefore).toLocaleDateString("en-IN")} · record expires in ${days((l.expiresAtMs ?? l.bestBefore) - Date.now())}</div>
+    ${l.recalled?.length ? `<div class="small badge-bad">⛔ Recalled: ${esc(l.recalled[0].reason)}</div>` : ""}
+  </article>`
+}
+async function find(text: string) {
+  $("findOut").innerHTML = `<p class="muted">Searching Arkiv…</p>`
+  try {
+    const r = await api<{ items: LotView[]; query: string }>(`/api/find?q=${encodeURIComponent(text)}`)
+    $("findOut").innerHTML = (r.items.map(lotRow).join("") || `<p class="muted">No live batch with that number. It may be expired, or never existed.</p>`) + `<details class="q"><summary>Exact Arkiv query</summary><pre>${esc(r.query)}</pre></details>`
+  } catch (e) { $("findOut").innerHTML = `<p class="bad">${esc((e as Error).message)}</p>` }
+}
+const kindLabel: Record<string, string> = { made: "🏭 Made", split: "✂ Split", sold: "🤝 Sold", recalled: "⛔ Recalled", received: "📦 Received" }
+async function openTrace(k: string) {
+  const d = await api<{ lot: LotView; chain: LotView[]; moves: MoveView[]; recalls: RecallView[]; product?: ProductView; official?: PriceView; query: string }>(`/api/trace/${k}`)
+  const l = d.lot
+  const left = l.bestBefore - Date.now()
   $("detailBody").innerHTML = `
-    <h2>${esc(r.ref)} <span class="stage s-${esc(r.stage)}">${esc(STAGES[r.stage])}</span></h2>
-    ${r.trusted ? "" : `<p class="badge-bad">⚠ Unverified creator. This looks like a real filing but was not created by a trusted desk, so the scorecard ignores it.</p>`}
-    <p>${esc(authorityLabel(r.authority))} · ${esc(CATEGORIES[r.category] ?? r.category)} · ${esc(BASIS[r.basis]?.label)} <small>${esc(BASIS[r.basis]?.section)}</small></p>
-    <p class="muted">${esc(r.summary ?? "")}</p>
-    <p>${clock(r)}</p>
+    <h2>${esc(l.brand)} <span class="muted small">${esc(d.product?.name ?? l.sku)}</span></h2>
+    <div class="verdict ${l.verdict?.genuine ? "good" : "bad"}">${l.verdict?.genuine ? "✔ Genuine" : "⚠ Counterfeit / unverified"}<ul>${(l.verdict?.reasons ?? []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>
+    ${d.recalls.length ? `<div class="verdict bad">⛔ Recalled ${d.recalls.map((r) => `<div>${esc(r.reason)} <small>(${r.trusted ? "by regulator/maker" : "UNTRUSTED recall notice"})</small></div>`).join("")}</div>` : ""}
     <table class="kv">
-      <tr><td>Filed</td><td>${new Date(r.filedAt).toLocaleString("en-IN")}</td></tr>
-      <tr><td>Reply due</td><td>${new Date(r.dueAt).toLocaleString("en-IN")}</td></tr>
-      ${r.repliedAt ? `<tr><td>Replied</td><td>${new Date(r.repliedAt).toLocaleString("en-IN")}</td></tr>` : ""}
-      ${r.faaDueAt ? `<tr><td>Appeal decision due</td><td>${new Date(r.faaDueAt).toLocaleString("en-IN")}</td></tr>` : ""}
-      <tr><td><code>$creator</code> (never changes)</td><td>${who(r.creator)}</td></tr>
-      <tr><td><code>$owner</code> (can update it now)</td><td>${who(r.owner)}</td></tr>
-      <tr><td>Entity Expiration</td><td>${lifetime(r)}: demo retention based on ordinary appeal periods, not a legal cutoff; late appeals may be admitted for sufficient cause</td></tr>
-      <tr><td>Flags</td><td>${r.permissionlessExtension ? "permissionlessExtension: anyone can keep it alive" : "none"}</td></tr>
-      <tr><td>Entity key</td><td><code class="small">${esc(r.key)}</code></td></tr>
+      <tr><td>Batch</td><td><b>${esc(l.batch)}</b> · ${l.qty} × ${esc(l.unit)}</td></tr>
+      <tr><td>Shelf life</td><td>${left > 0 ? `${days(left)} left` : "expired"} (best before ${new Date(l.bestBefore).toLocaleDateString("en-IN")}). <span class="muted">Entity Expiration = best-before: the record leaves every query on that day.</span></td></tr>
+      <tr><td>Fair price</td><td>${d.official ? `Govt average today: <b>${rupees(d.official.pricePaise)}</b> / ${esc(d.official.unit)} (DoCA ${esc(d.official.date)})` : "No official retail price for this item"}${d.product ? ` · MRP ${rupees(d.product.mrpPaise)}` : ""}</td></tr>
+      <tr><td><code>$creator</code> (who started this record)</td><td>${who(l.creator)}</td></tr>
+      <tr><td><code>$owner</code> (who holds it now)</td><td>${who(l.owner)}</td></tr>
+      <tr><td>Split from</td><td>${d.chain.length ? d.chain.map((c) => `${esc(c.batch)} held by ${who(c.owner)}`).join(" ← ") : "original batch"}</td></tr>
+      <tr><td>Record key</td><td><code class="small">${esc(l.key)}</code></td></tr>
     </table>
-    <h3>Timeline <small class="muted">readonly events: burn-owned for their lifetime</small></h3>
-    <ol class="timeline">${d.events
-      .map((e) => `<li><b>${esc(e.kind.replace("_", " "))}</b> · ${new Date(e.at).toLocaleString("en-IN")} · ${esc(e.note ?? "")}
-        <div class="small muted">created by ${who(e.creator)} · owner ${who(e.owner)} · ${e.readonly ? "readonly" : "editable"}</div></li>`)
-      .join("")}</ol>
-    <h3>Actions</h3>
-    <div class="row wrap actions">
-      ${relayOwned && can.reply ? `<button data-act="reply">Mark PIO reply received</button>` : ""}
-      ${relayOwned && can.appeal ? `<button data-act="appeal">File first appeal</button>` : ""}
-      ${relayOwned && can.escalate ? `<button data-act="escalate">Escalate to second appeal → legal-aid desk</button>` : ""}
-      ${can.hearing ? `<button data-act="hearing">Record Commission hearing (adds 90 days to demo retention)</button>` : ""}
-      ${can.handover ? `<span class="row"><input id="applicant" placeholder="Applicant wallet 0x…" /><button data-act="handover">Hand over</button></span>` : ""}
-      <button data-act="keepalive" class="ghost">Keep alive +30 days with my wallet</button>
-      ${!relayOwned ? `<button data-act="mm-reply" ${can.reply ? "" : "hidden"}>Mark replied (sign with my wallet)</button>
-        <button data-act="mm-appeal" ${can.appeal ? "" : "hidden"}>First appeal (sign with my wallet)</button>
-        <button data-act="mm-escalate" ${can.escalate ? "" : "hidden"}>Second appeal (sign with my wallet)</button>` : ""}
-    </div>
-    <div id="actOut" class="out"></div>
-    <details class="q"><summary>Exact Arkiv query for this timeline</summary><pre>${esc(d.query)}</pre></details>`
-  $("detailBody").querySelectorAll<HTMLButtonElement>("button[data-act]").forEach((b) =>
-    b.addEventListener("click", () => act(r.key as Hex, b.dataset.act!, b)))
+    <h3>Journey <small class="muted">readonly steps, burn-owned</small></h3>
+    <ol class="timeline">${d.moves.map((m) => `<li><b>${kindLabel[m.kind] ?? esc(m.kind)}</b> · ${new Date(m.at).toLocaleString("en-IN")}
+      ${m.kind === "sold" ? ` · ${m.qty} units ${who(m.from)} → ${who(m.to)} at ${rupees(m.pricePaise)}` : m.kind === "split" ? ` · ${m.qty} units` : m.kind === "made" ? ` · ${m.qty} units by ${who(m.from)}` : ` · by ${who(m.from)}`}
+      <div class="small muted">step recorded by ${who(m.creator)} · owner ${who(m.owner)} · ${m.readonly ? "readonly" : "editable"}</div></li>`).join("")}</ol>
+    <details class="q"><summary>Exact Arkiv query for this journey</summary><pre>${esc(d.query)}</pre></details>`
   const dlg = $<HTMLDialogElement>("detail")
   if (!dlg.open) dlg.showModal()
 }
 
-async function userWallet() {
-  const eth = (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum
-  if (!eth) throw new Error("No browser wallet found. Install MetaMask, add Tiramisu and claim test GLM at hub.arkiv.network/faucet.")
-  const [account] = (await eth.request({ method: "eth_requestAccounts" })) as Hex[]
-  try {
-    await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x7614d1" }] })
-  } catch {
-    await eth.request({
-      method: "wallet_addEthereumChain",
-      params: [{ chainId: "0x7614d1", chainName: "Arkiv Tiramisu", nativeCurrency: { name: "GLM", symbol: "GLM", decimals: 18 },
-        rpcUrls: [tiramisu.rpcUrls.default.http[0]], blockExplorerUrls: [cfg.explorer] }],
-    })
-  }
-  return createWalletClient({ chain: tiramisu, transport: custom(eth), account })
+// ---------- recalls ----------
+async function loadRecalls() {
+  const r = await api<{ items: RecallView[] }>("/api/recalls")
+  $("recallList").innerHTML = r.items.map((x) => `<li class="${x.trusted ? "" : "muted"}"><b>${esc(x.brand)} ${esc(x.batch)}</b> · ${esc(x.reason)}<br><small>${x.trusted ? "issued by" : "UNTRUSTED notice from"} ${who(x.creator)} · ${new Date(x.at).toLocaleString("en-IN")} · <a href="#" data-trace="${esc(x.root)}">trace batch</a></small></li>`).join("") || `<li class="muted">No active recalls.</li>`
 }
 
-async function act(k: Hex, what: string, btn: HTMLButtonElement) {
-  const out = $("actOut")
-  btn.disabled = true
-  out.innerHTML = `<span class="muted">Sending transaction to Tiramisu…</span>`
-  try {
-    let res: { txHash: string; previousExpiry?: string | bigint; newExpiry?: string | bigint; extended?: boolean }
-    if (what === "keepalive") res = await keepAlive(browserPub, await userWallet(), k)
-    else if (what === "mm-reply") res = await markReplied(browserPub, await userWallet(), k)
-    else if (what === "mm-appeal") res = await fileFirstAppeal(browserPub, await userWallet(), k)
-    else if (what === "mm-escalate") res = await escalateSecondAppeal(browserPub, await userWallet(), k, cfg.legalAid)
-    else res = await api(`/api/request/${k}/${what}`, what === "handover" ? { applicant: ($("applicant") as HTMLInputElement).value.trim() } : {})
-    const moved = res.newExpiry !== undefined && res.previousExpiry !== undefined && res.extended !== false &&
-      BigInt(res.newExpiry) > BigInt(res.previousExpiry)
-      ? ` · Entity Expiration moved from block ${esc(res.previousExpiry)} to ${esc(res.newExpiry)}` : ""
-    out.innerHTML = `✔ Done in one transaction ${txLink(res.txHash)}${moved}`
-    await Promise.all([openDetail(k), refreshAll()])
-    $("actOut").innerHTML = `✔ Done in one transaction ${txLink(res.txHash)}${moved}`
-  } catch (e) {
-    out.innerHTML = `<span class="bad">${esc((e as Error).message.split("\n")[0])}</span>`
-    btn.disabled = false
-  }
+// ---------- registry ----------
+async function loadParticipants() {
+  const r = await api<{ items: ParticipantView[]; query: string }>("/api/participants")
+  $("participants").innerHTML = `<table><thead><tr><th>Business</th><th>Role</th><th>Licence</th><th>State</th><th>Licence record expires</th></tr></thead><tbody>${r.items.map((p) => `<tr><td>${who(p.wallet)}</td><td>${esc(p.role)}</td><td><code>${esc(p.licence)}</code></td><td>${esc(p.state)}</td><td>in ${days((p.expiresAtMs ?? 0) - Date.now())}</td></tr>`).join("")}</tbody></table>
+    <p class="small muted">Not in this list: ${who(cfg.roles.counterfeiter.address)}, so anything it creates is flagged.</p><details class="q"><summary>Exact Arkiv query</summary><pre>${esc(r.query)}</pre></details>`
 }
 
-// ---------- Live feed over WebSocket ----------
+// ---------- act as ----------
+const TABS: [RoleId, string][] = [["maker_food", "Maker · food"], ["maker_pharma", "Maker · pharma"], ["distributor", "Distributor"], ["retailer", "Retailer"], ["regulator", "Regulator"], ["counterfeiter", "Counterfeiter"]]
+let activeRole: RoleId = "distributor"
+let products: ProductView[] = []
+const refPrice = (commodity: string) => prices.find((p) => p.commodity === commodity)?.pricePaise ?? 0
+
+async function renderRole() {
+  $("roleTabs").innerHTML = TABS.map(([id, label]) => `<button class="tab ${id === activeRole ? "on" : ""}" data-role="${id}">${label}</button>`).join("")
+  const r = cfg.roles[activeRole]
+  const head = `<p class="role-head">${who(r.address)} · ${esc(r.role)} · ${esc(r.state)}</p>`
+  const panel = $("rolePanel")
+  if (activeRole === "counterfeiter") {
+    panel.innerHTML = head + `<p>This wallet has <b>no licence</b>. In the seed it copied the Annapurna Tur Dal product and batch number into its own record and offered it 30% below the govt price. The marketplace and trace view flag it because its <code>$creator</code> is not the brand's maker and not licensed. Try <a href="#" data-find="ANN-TUR1-B2611">tracing ANN-TUR1-B2611</a>.</p>`
+    return
+  }
+  if (activeRole === "regulator") {
+    const l = await api<{ items: LotView[] }>("/api/lots")
+    const roots = l.items.filter((x) => !x.parent && !x.recalled?.length)
+    panel.innerHTML = head + `<form id="recallForm" class="form"><label class="full">Batch to recall <select name="root">${roots.map((x) => `<option value="${esc(x.key)}">${esc(x.batch)} · ${esc(x.brand)} ${esc(x.sku)}</option>`).join("")}</select></label>
+      <label class="full">Reason <input name="reason" value="Failed quality test: Not of Standard Quality (demo)" /></label><button>Issue recall to every holder</button></form>`
+    return
+  }
+  const isMaker = activeRole.startsWith("maker")
+  const [inv] = await Promise.all([api<{ items: LotView[]; query: string }>(`/api/lots?role=${activeRole}`), isMaker && !products.length ? api<{ items: ProductView[] }>("/api/products").then((p) => { products = p.items }) : undefined])
+  const mine = products.filter((p) => p.creator.toLowerCase() === r.address.toLowerCase())
+  panel.innerHTML = head + (isMaker ? `<form id="makeForm" class="form"><label class="full">Product <select name="product">${mine.map((p) => `<option value="${esc(p.key)}">${esc(p.brand)} ${esc(p.name)}</option>`).join("")}</select></label>
+      <label>Quantity <input name="qty" type="number" min="1" value="500" /></label><label>Shelf life (days) <input name="shelfDays" type="number" min="1" value="180" /></label>
+      <button>Make a new batch</button></form>` : "") +
+    `<h3>Stock held by this wallet <small class="muted">ownedBy(${short(r.address)})</small></h3>
+    <div class="list">${inv.items.map((l) => {
+      const ref = refPrice(l.commodity)
+      return `<article class="req ${l.recalled?.length ? "recalled" : ""}"><div class="row between"><b>${esc(l.batch)}</b>${verdictBadge(l.verdict)}</div>
+        <div class="big">${esc(l.brand)} · ${esc(l.sku)}</div><div class="small">${l.qty} × ${esc(l.unit)} · best before ${new Date(l.bestBefore).toLocaleDateString("en-IN")}</div>
+        ${l.recalled?.length ? `<div class="small badge-bad">⛔ Recalled: do not sell</div>` : ""}
+        <form class="row wrap gap" data-offer="${esc(l.key)}"><input name="qty" type="number" min="1" max="${l.qty}" value="${Math.min(50, l.qty)}" title="units" /><input name="price" type="number" min="0.01" step="0.01" value="${ref ? (ref / 100).toFixed(2) : "30.00"}" title="₹ per unit" /><button ${l.recalled?.length ? "disabled" : ""}>List offer</button></form>
+        <form class="row wrap gap" data-split="${esc(l.key)}"><input name="parts" value="${Math.max(1, Math.floor(l.qty / 4))},${Math.max(1, Math.floor(l.qty / 4))}" title="comma-separated parts" /><button class="ghost">Split</button><button type="button" class="ghost" data-trace="${esc(l.key)}">Trace</button></form>
+        ${ref ? `<div class="small muted">govt avg ${rupees(ref)} per unit</div>` : ""}</article>`
+    }).join("") || `<p class="muted">This wallet holds no live stock.</p>`}</div>`
+}
+
+async function act(fn: () => Promise<{ txHash?: string } & Record<string, unknown>>, btn?: HTMLButtonElement, out = "actOut") {
+  if (btn) btn.disabled = true
+  $(out).innerHTML = `<span class="muted">Sending one atomic transaction to Tiramisu…</span>`
+  try {
+    const r = await fn()
+    $(out).innerHTML = `✔ Done in one transaction ${r.txHash ? txLink(r.txHash) : ""}`
+    await Promise.allSettled([loadStats(), loadOffers(), loadRecalls(), renderRole()])
+  } catch (e) { $(out).innerHTML = `<span class="bad">${esc((e as Error).message)}</span>` } finally { if (btn) btn.disabled = false }
+}
+
+// ---------- live feed ----------
 function startFeed() {
-  const ours = new Set([cfg.desk, cfg.legalAid].map((a) => a.toLowerCase()))
+  const ours = new Set(Object.values(cfg.roles).map((r) => r.address.toLowerCase()))
+  const name = (a: string) => roleEntry(a)?.[1].name ?? short(a)
   const wsPub = createPublicClient({ chain: tiramisu, transport: webSocket(cfg.wsUrl) })
   const live = $("live")
-  let refreshTimer: number | undefined
-  let receivedEvent = false
-  let hadError = false
+  let got = false, err = false, timer: number | undefined
   wsPub.watchEntityEvents({
     onEvent: (e) => {
-      receivedEvent = true
-      live.textContent = "Live: WebSocket connected"
-      live.className = "live on"
-      const parties = [("owner" in e ? e.owner : ""), ("previousOwner" in e ? e.previousOwner : ""), ("newOwner" in e ? e.newOwner : "")]
-      if (!parties.some((p) => p && ours.has(p.toLowerCase()))) return
-      const feed = $("feed")
-      if (feed.querySelector(".muted")) feed.innerHTML = ""
-      const label = { EntityCreated: "created", EntityPatched: "patched", ExpiryExtended: "Lifetime Extension", OwnershipTransferred: "ownership transferred", EntityDeleted: "deleted" }[e.type]
-      const extra = e.type === "OwnershipTransferred" ? ` → ${who(e.newOwner)}` : e.type === "ExpiryExtended" ? ` → block ${e.expiresAt}` : ""
-      feed.insertAdjacentHTML("afterbegin", `<li><b>${label}</b> ${esc(short(e.entityKey))}${extra} · block ${e.blockNumber} · ${txLink(e.transactionHash)}</li>`)
-      while (feed.children.length > 30) feed.lastElementChild?.remove()
-      clearTimeout(refreshTimer)
-      refreshTimer = window.setTimeout(refreshAll, 1500)
+      got = true; live.textContent = "Live: WebSocket connected"; live.className = "live on"
+      const parties = ["owner" in e ? e.owner : "", "previousOwner" in e ? e.previousOwner : "", "newOwner" in e ? e.newOwner : ""]
+      const party = parties.find((p) => p && ours.has(p.toLowerCase()))
+      if (!party) return
+      const feed = $("feed"); if (feed.querySelector(".muted")) feed.innerHTML = ""
+      const label = { EntityCreated: "created", EntityPatched: "updated", ExpiryExtended: "Lifetime Extension", OwnershipTransferred: "custody moved", EntityDeleted: "offer closed" }[e.type]
+      const extra = e.type === "OwnershipTransferred" ? ` ${esc(name(e.previousOwner))} → ${esc(name(e.newOwner))}` : ` by ${esc(name(party))}`
+      feed.insertAdjacentHTML("afterbegin", `<li><b>${label}</b>${extra} · ${txLink(e.transactionHash)}</li>`)
+      while (feed.children.length > 40) feed.lastElementChild?.remove()
+      if (e.type === "EntityCreated" && party.toLowerCase() === cfg.roles.regulator.address.toLowerCase()) toast("⛔ New recall notice from the regulator")
+      clearTimeout(timer); timer = window.setTimeout(() => void Promise.allSettled([loadStats(), loadOffers(), loadRecalls()]), 1500)
     },
-    onError: () => { hadError = true; live.textContent = "Live: reconnecting…"; live.className = "live off" },
+    onError: () => { err = true; live.textContent = "Live: reconnecting…"; live.className = "live off" },
   })
-  setTimeout(() => { if (!receivedEvent && !hadError) { live.textContent = "Live: waiting for Arkiv events"; live.className = "live off" } }, 8000)
+  setTimeout(() => { if (!got && !err) { live.textContent = "Live: waiting for Arkiv events"; live.className = "live off" } }, 8000)
+}
+function toast(msg: string) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t)
+  setTimeout(() => t.remove(), 6000)
 }
 
-// ---------- Verify without us ----------
-function overdueBuilder() {
-  return browserPub
-    .select({ key: true, attributes: { ref: true, authority: true, due_at: true } })
-    .where(eq("project", str(PROJECT)), eq("type", str("request")), eq("stage", str("awaiting_reply")), lt("due_at", u64(Date.now())))
-    .createdBy(cfg.desk)
-    .limit(200)
-}
+// ---------- verify without us ----------
+const overBuilder = () => browserPub.select({ key: true, creator: true, attributes: { sku: true, markup_bp: true, unit_price_paise: true, ref_price_paise: true } })
+  .where(eq("project", str(PROJECT)), eq("type", str("offer")), gt("markup_bp", i32(OVERPRICED_BP))).limit(200)
 function showVerifyCode() {
   $("verifyCode").textContent = `import { createPublicClient } from "@arkiv-network/sdk"
 import { tiramisu } from "@arkiv-network/sdk/chains"
-import { str, u64 } from "@arkiv-network/sdk/attr"
-import { eq, lt } from "@arkiv-network/sdk/query"
+import { str, i32 } from "@arkiv-network/sdk/attr"
+import { eq, gt } from "@arkiv-network/sdk/query"
 import { http } from "viem"
 
 const arkiv = createPublicClient({ chain: tiramisu, transport: http() })
-const overdue = await arkiv
-  .select({ key: true, attributes: { ref: true, authority: true, due_at: true } })
-  .where(eq("project", str("${PROJECT}")), eq("type", str("request")),
-         eq("stage", str("awaiting_reply")), lt("due_at", u64(Date.now())))
-  .createdBy("${cfg.desk}")   // trust comes from $creator
-  .limit(200)
-
-let page = await overdue.fetch()
-const block = page.blockNumber
-const entities = [...page.entities]
-while (page.hasNextPage()) {
-  page = await page.next()
-  entities.push(...page.entities)
-}
-console.log({ block, total: entities.length })
+let page = await arkiv.select({ key: true, attributes: true })
+  .where(eq("project", str("${PROJECT}")), eq("type", str("offer")),
+         gt("markup_bp", i32(${OVERPRICED_BP})))   // > 20% above govt price
+  .limit(200).fetch()
 
 // Query string sent to the node:
-// ${overdueBuilder().toString()}`
+// ${overBuilder().toString()}`
 }
-
 async function verifyDirect() {
-  const out = $("verifyOut")
-  out.innerHTML = `<span class="muted">Querying ${esc(tiramisu.rpcUrls.default.http[0])} directly…</span>`
+  $("verifyOut").innerHTML = `<span class="muted">Querying ${esc(tiramisu.rpcUrls.default.http[0])} directly…</span>`
   try {
-    const page = await collectPages(await overdueBuilder().fetch())
-    const by = new Map<string, number>()
-    for (const e of page.entities) {
-      const a = String(e.attributes?.authority?.value)
-      by.set(a, (by.get(a) ?? 0) + 1)
-    }
-    out.innerHTML = `✔ Straight from Arkiv at block ${page.blockNumber}: <b>${page.entities.length}</b> overdue filings by the trusted desk.<br>${[...by]
-      .map(([a, n]) => `${esc(authorityLabel(a))}: ${n}`).join(" · ")}<br><span class="muted small">Compare with the scorecard's Overdue column.</span>`
-  } catch (e) {
-    out.innerHTML = `<span class="bad">${esc((e as Error).message.split("\n")[0])}</span><br><span class="muted small">The public RPC limits anonymous reads; the terminal script accepts an access key.</span>`
-  }
+    const page = await collectPages(await overBuilder().fetch())
+    $("verifyOut").innerHTML = `✔ Straight from Arkiv at block ${page.blockNumber}: <b>${page.entities.length}</b> offers priced more than 20% above the official price.<br>${page.entities.map((e) => `${esc(e.attributes?.sku?.value)} ${pct(Number(e.attributes?.markup_bp?.value))}`).join(" · ")}<br><span class="muted small">Compare with the "Overpriced" stat above.</span>`
+  } catch (e) { $("verifyOut").innerHTML = `<span class="bad">${esc((e as Error).message.split("\n")[0])}</span>` }
 }
 
-// ---------- Forms ----------
-function fillSelect(id: string, entries: [string, string][], keepFirst = false) {
-  const el = $<HTMLSelectElement>(id)
-  if (!keepFirst) el.innerHTML = ""
-  el.insertAdjacentHTML("beforeend", entries.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join(""))
-}
-
-async function refreshAll() {
-  await Promise.allSettled([loadScorecard(), loadList()])
-}
-
+// ---------- boot ----------
+function fill(id: string, entries: [string, string][]) { $(id).insertAdjacentHTML("beforeend", entries.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("")) }
 async function main() {
   cfg = await api<Config>("/api/config")
-  fillSelect("fState", Object.entries(cfg.states))
-  fillSelect("flState", Object.entries(cfg.states), true)
-  fillSelect("fDept", Object.entries(cfg.departments).map(([k, v]) => [k, `${v.label} (${v.level})`]))
-  fillSelect("fBasis", Object.entries(BASIS).map(([k, v]) => [k, `${v.label} · ${v.section}`]))
-  fillSelect("fCat", Object.entries(CATEGORIES))
-  fillSelect("flCat", Object.entries(CATEGORIES), true)
-  if (!cfg.writesEnabled) $("fileForm").querySelector("button")!.disabled = true
-
-  $("fileForm").addEventListener("submit", async (ev) => {
-    ev.preventDefault()
-    const form = ev.target as HTMLFormElement
-    const btn = form.querySelector("button")!
-    btn.disabled = true
-    $("fileOut").innerHTML = `<span class="muted">Writing one atomic batch to Tiramisu…</span>`
-    try {
-      const body = Object.fromEntries(new FormData(form))
-      const r = await api<{ ref: string; requestKey: string; txHash: string }>("/api/requests", body)
-      $("fileOut").innerHTML = `✔ <b>${esc(r.ref)}</b> logged · tx ${txLink(r.txHash)} · <a href="#" data-open="${esc(r.requestKey)}">open</a>`
-      await refreshAll()
-    } catch (e) {
-      $("fileOut").innerHTML = `<span class="bad">${esc((e as Error).message)}</span>`
-    } finally {
-      btn.disabled = false
-    }
-  })
-  $("filters").addEventListener("change", () => loadList())
-  $("more").addEventListener("click", () => loadList(true))
-  $("refForm").addEventListener("submit", async (ev) => {
-    ev.preventDefault()
-    const ref = ($("refIn") as HTMLInputElement).value.trim()
-    if (!ref) return loadList()
-    const res = await api<{ items: RequestView[]; query: string }>(`/api/requests?ref=${encodeURIComponent(ref)}`)
-    $("list").innerHTML = res.items.map(card).join("") || `<p class="muted">No request with reference ${esc(ref)}.</p>`
-    $("listQuery").textContent = res.query
-    $("more").hidden = true
-  })
+  fill("priceCat", Object.entries(CATEGORIES).filter(([k]) => k !== "medicines")); fill("ofCat", Object.entries(CATEGORIES))
+  $("priceCat").addEventListener("change", renderPrices)
+  $("offerFilters").addEventListener("change", () => void loadOffers())
+  $("moreOffers").addEventListener("click", () => void loadOffers(true))
+  $("findForm").addEventListener("submit", (ev) => { ev.preventDefault(); void find($<HTMLInputElement>("findIn").value) })
+  $("verifyBtn").addEventListener("click", () => void verifyDirect())
   document.addEventListener("click", (ev) => {
     const t = ev.target as HTMLElement
-    const open = t.closest<HTMLElement>("[data-open]")?.dataset.open ?? (t.closest("a,button") ? undefined : t.closest<HTMLElement>(".req")?.dataset.key)
-    if (open) { ev.preventDefault(); void openDetail(open) }
+    const tr = t.closest<HTMLElement>("[data-trace]")?.dataset.trace
+    const fd = t.closest<HTMLElement>("[data-find]")?.dataset.find
+    const buy = t.closest<HTMLElement>("[data-buy]")?.dataset.buy
+    const role = t.closest<HTMLElement>("[data-role]")?.dataset.role as RoleId | undefined
+    if (tr) { ev.preventDefault(); void openTrace(tr) }
+    else if (fd) { ev.preventDefault(); $<HTMLInputElement>("findIn").value = fd; location.hash = "trace"; void find(fd) }
+    else if (buy) void act(() => api(`/api/act/${$<HTMLSelectElement>("buyAs").value}/buy`, { offer: buy }), t as HTMLButtonElement, "buyOut")
+    else if (role) { activeRole = role; $("actOut").innerHTML = ""; void renderRole() }
   })
-  $("verifyBtn").addEventListener("click", verifyDirect)
+  document.addEventListener("submit", (ev) => {
+    const f = ev.target as HTMLFormElement
+    const fdata = Object.fromEntries(new FormData(f))
+    const btn = f.querySelector("button") as HTMLButtonElement
+    if (f.id === "makeForm") { ev.preventDefault(); void act(() => api(`/api/act/${activeRole}/make`, fdata), btn) }
+    else if (f.id === "recallForm") { ev.preventDefault(); void act(() => api(`/api/act/regulator/recall`, fdata), btn) }
+    else if (f.dataset.offer) { ev.preventDefault(); void act(() => api(`/api/act/${activeRole}/offer`, { lot: f.dataset.offer, qty: fdata.qty, unitPriceRupees: fdata.price }), btn) }
+    else if (f.dataset.split) { ev.preventDefault(); void act(() => api(`/api/act/${activeRole}/split`, { lot: f.dataset.split, parts: String(fdata.parts).split(",").map((x) => Number(x.trim())) }), btn) }
+  })
   showVerifyCode()
-  await refreshAll()
+  await Promise.allSettled([loadStats(), loadPrices(), loadOffers(), loadRecalls(), loadParticipants(), renderRole()])
   startFeed()
 }
-
 main().catch((e) => { document.querySelector("main")!.insertAdjacentHTML("afterbegin", `<p class="bad">${esc(e.message)}</p>`) })

@@ -1,16 +1,17 @@
 {
   "name": "jawab-do",
   "version": "1.0.0",
-  "description": "A public, tamper-proof deadline clock for India's Right to Information (RTI) requests, built on Arkiv, the Web3 database (Tiramisu testnet).",
+  "description": "Supply Setu: an open, shared supply-chain record for India's essential goods on Arkiv, the Web3 database (Tiramisu testnet), checked against official government prices.",
   "main": "index.js",
   "scripts": {
-    "test": "node --import tsx --test --env-file-if-exists=.env tests/fixes.test.ts tests/read-only-fallback.test.ts",
+    "test": "node --import tsx --test --env-file-if-exists=.env tests/setu.test.ts",
     "dev": "vite",
     "build": "vite build",
     "start": "tsx --env-file-if-exists=.env server/main.ts",
     "typecheck": "tsc -p .",
-    "seed": "tsx --env-file=.env scripts/seed.ts",
-    "verify": "tsx scripts/verify.ts",
+    "seed": "tsx --env-file=.env scripts/seed-setu.ts",
+    "ingest": "tsx --env-file=.env scripts/ingest-prices.ts",
+    "verify": "tsx --env-file-if-exists=.env scripts/verify.ts",
     "probe": "tsx --env-file=.env scripts/probe-write.ts"
   },
   "keywords": [],
