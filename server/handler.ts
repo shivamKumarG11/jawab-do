@@ -180,8 +180,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse) {
         out = await serial(w.account.address, () => splitLot(pub, w, b.lot as Hex, parts))
       } else if (action === "buy") {
         if (!isKey(b.offer)) return json(res, 400, { error: "Pick an offer" })
-        const offer = await pub.getEntity(b.offer)
-        if (!isSetu(offer, "offer")) return json(res, 404, { error: "Offer not found (sold or expired)" })
+        const offer = await pub.getEntity(b.offer).catch(() => undefined)
+        if (!offer || !isSetu(offer, "offer")) return json(res, 409, { error: "This offer was just sold or has expired. Refresh the marketplace." })
         const sellerId = Object.entries(ROLES).find(([, r]) => r.address.toLowerCase() === String(attr(offer, "seller")).toLowerCase())?.[0] as RoleId | undefined
         const sw = sellerId ? wallets[sellerId] : undefined
         if (!sw) return json(res, 409, { error: "This seller signs with their own wallet; the demo relay cannot settle it" })
