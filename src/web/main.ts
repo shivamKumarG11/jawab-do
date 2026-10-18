@@ -68,9 +68,14 @@ const lifetime = (r: { expiresAtMs?: number; expiresAt: string }) =>
 async function loadScorecard() {
   const s = await api<{ rows: { authority: string; total: number; overdue: number; awaiting: number; replied: number; appeals: number }[]; queries: Record<string, string> }>("/api/scorecard")
   $("scoreQueries").textContent = `// all trusted requests\n${s.queries.all}\n\n// overdue (numeric range on due_at)\n${s.queries.overdue}`
+  const sum = (k: "total" | "overdue" | "awaiting" | "appeals") => s.rows.reduce((a, r) => a + r[k], 0)
+  $("statTotal").textContent = String(sum("total"))
+  $("statOverdue").textContent = String(sum("overdue"))
+  $("statAwaiting").textContent = String(sum("awaiting"))
+  $("statAppeals").textContent = String(sum("appeals"))
   $("scorecard").innerHTML = s.rows.length
     ? `<table><thead><tr><th>Public authority</th><th>Filings</th><th>Overdue</th><th>Awaiting</th><th>Replied</th><th>Appeals</th></tr></thead><tbody>${s.rows
-        .map((r) => `<tr><td>${esc(authorityLabel(r.authority))}</td><td>${r.total}</td><td class="${r.overdue ? "bad" : ""}">${r.overdue}</td><td>${r.awaiting}</td><td>${r.replied}</td><td>${r.appeals}</td></tr>`)
+        .map((r) => `<tr><td>${esc(authorityLabel(r.authority))}<div class="bar"><i style="width:${Math.round((100 * r.overdue) / Math.max(1, r.total))}%"></i></div></td><td>${r.total}</td><td class="${r.overdue ? "bad" : "muted"}">${r.overdue}</td><td>${r.awaiting}</td><td>${r.replied}</td><td>${r.appeals}</td></tr>`)
         .join("")}</tbody></table>`
     : `<p class="muted">No filings yet.</p>`
 }

@@ -4,60 +4,84 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jawab Do · RTI deadline clock on Arkiv</title>
-    <meta name="description" content="A public, tamper-proof deadline clock for India's Right to Information requests, built on Arkiv." />
+    <meta name="description" content="A public RTI deadline clock built on Arkiv, the Web3 database. Synthetic demo on the Tiramisu testnet." />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Tiro+Devanagari+Hindi&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <header class="top">
-      <div class="brand">
-        <h1>Jawab Do <span class="hi">जवाब दो</span></h1>
-        <p class="tag">Synthetic RTI deadline demo. Readonly timeline events are burn-owned for their lifetime.</p>
+    <nav class="top">
+      <a class="logo" href="#"><span class="mark">⏱</span> Jawab Do <span class="hi">जवाब दो</span></a>
+      <div class="navlinks">
+        <a href="#scoreboard">Scorecard</a><a href="#requests">Requests</a><a href="#verify">Verify</a>
+        <a href="https://github.com/shivamKumarG11/jawab-do" target="_blank" rel="noopener">GitHub</a>
       </div>
       <div id="live" class="live off" title="Arkiv WebSocket entity events">Live: connecting…</div>
+    </nav>
+
+    <header class="hero">
+      <div class="hero-text">
+        <p class="eyebrow">Right to Information Act, 2005 · on Arkiv, the Web3 database</p>
+        <h1>The government has 30 days to answer.<br /><em>Now the clock is public.</em></h1>
+        <p class="lede">Jawab Do tracks RTI deadlines as Arkiv entities: records that expire on their own schedule, a timeline nobody can quietly edit, and ownership that moves with the appeal.</p>
+        <div class="stats">
+          <div><b id="statTotal">–</b><span>trusted filings</span></div>
+          <div class="hot"><b id="statOverdue">–</b><span>deemed refused</span></div>
+          <div><b id="statAwaiting">–</b><span>awaiting reply</span></div>
+          <div><b id="statAppeals">–</b><span>in appeal</span></div>
+        </div>
+      </div>
+      <div class="pillars">
+        <div class="pillar"><span class="ico">⌛</span><b>Entity Expiration</b><p>Each request is kept for its ordinary appeal window; timeline events for a year.</p></div>
+        <div class="pillar"><span class="ico">🔒</span><b>Burn-owned timeline</b><p>Every event is readonly and handed to <code>0x…dEaD</code> in the same batch. Even we can't edit it.</p></div>
+        <div class="pillar"><span class="ico">🪪</span><b><code>$creator</code> trust</b><p>Spoofs can copy every attribute, but not the creator. The scorecard counts trusted desks only.</p></div>
+        <div class="pillar"><span class="ico">⇄</span><b>Ownership on appeal</b><p>Second appeal moves <code>$owner</code> to the legal-aid desk; the creator never changes.</p></div>
+      </div>
     </header>
+
     <div class="banner">
-      Demo on the Arkiv <b>Tiramisu testnet</b>. Every filing is <b>synthetic</b>: no applicant names, contact details or application text are stored anywhere.
-      Departments are generic types, not accusations against real offices. This unauthenticated demo neither submits official RTI filings nor verifies real-world filings or events.
+      <b>Synthetic demo</b> on the Arkiv Tiramisu testnet. No applicant names, contact details or application text are stored. Departments are generic types, not real offices. This app does not submit official RTIs or verify real-world filings.
     </div>
 
     <main>
       <section class="how">
-        <div><b>30 days</b> for a reply <small>s.7(1)</small></div>
-        <div><b>48 hours</b> if life or liberty <small>s.7(1)</small></div>
-        <div><b>No reply = deemed refusal</b> <small>s.7(2)</small></div>
-        <div><b>First appeal</b> within 30 days <small>s.19(1)</small></div>
-        <div><b>Second appeal</b> within 90 days <small>s.19(3)</small></div>
+        <div class="step"><i>1</i><b>30 days</b><span>to reply · s.7(1)</span></div>
+        <div class="step"><i>2</i><b>48 hours</b><span>if life or liberty · s.7(1)</span></div>
+        <div class="step bad-step"><i>3</i><b>Silence</b><span>= deemed refusal · s.7(2)</span></div>
+        <div class="step"><i>4</i><b>First appeal</b><span>within 30 days · s.19(1)</span></div>
+        <div class="step"><i>5</i><b>Second appeal</b><span>within 90 days · s.19(3)</span></div>
       </section>
 
-      <section class="grid">
+      <section class="grid two" id="scoreboard">
         <div class="card">
-          <h2>Department scorecard</h2>
-          <p class="muted">Counts only filings whose <code>$creator</code> is a trusted desk wallet. Overdue = awaiting reply with <code>due_at &lt; now</code>.</p>
-          <div id="scorecard">Loading…</div>
+          <div class="card-head"><h2>Department scorecard</h2><span class="pill">createdBy(desk)</span></div>
+          <p class="muted">Counts only filings whose <code>$creator</code> is the trusted desk. Overdue = awaiting reply with <code>due_at &lt; now</code>.</p>
+          <div id="scorecard" class="scroll">Loading…</div>
           <details class="q"><summary>Exact Arkiv queries</summary><pre id="scoreQueries"></pre></details>
         </div>
 
-        <div class="card">
-          <h2>Log an RTI filing <span class="pill">demo</span></h2>
-          <p class="muted">A help desk logs a filing (often made on paper). The relay signs as the trusted filing desk. One atomic batch creates the request and its immutable "filed" event.</p>
+        <div class="card accent">
+          <div class="card-head"><h2>Log an RTI filing</h2><span class="pill">demo</span></div>
+          <p class="muted">A help desk logs a filing. One atomic batch creates the request and its readonly "filed" event, burned in the same transaction.</p>
           <form id="fileForm" class="form">
             <label>State <select name="state" id="fState"></select></label>
             <label>Department <select name="dept" id="fDept"></select></label>
             <label>Basis <select name="basis" id="fBasis"></select></label>
             <label>Topic <select name="category" id="fCat"></select></label>
-            <label>Filed <select name="filedDaysAgo">
+            <label class="full">Filed <select name="filedDaysAgo">
               <option value="0">today</option><option value="10">10 days ago</option><option value="25">25 days ago</option>
               <option value="33">33 days ago</option><option value="45">45 days ago</option></select></label>
-            <button type="submit">Log filing on Arkiv</button>
+            <button type="submit">Log filing on Arkiv →</button>
           </form>
           <div id="fileOut" class="out"></div>
         </div>
       </section>
 
-      <section class="card">
-        <div class="row between">
+      <section class="card" id="requests">
+        <div class="card-head wrap">
           <h2>Requests</h2>
-          <form id="refForm" class="row"><input id="refIn" placeholder="Find by reference, e.g. JD-BR-4F2K" /><button>Find</button></form>
+          <form id="refForm" class="row search"><input id="refIn" placeholder="Find by reference, e.g. JD-BR-4F2K" /><button>Find</button></form>
         </div>
         <form id="filters" class="row wrap filters">
           <select name="state" id="flState"><option value="">All states</option></select>
@@ -72,15 +96,15 @@
         <details class="q"><summary>Exact Arkiv query for this list</summary><pre id="listQuery"></pre></details>
       </section>
 
-      <section class="grid">
-        <div class="card">
-          <h2>Live entity events</h2>
-          <p class="muted">Browser → Arkiv WebSocket directly (<code>watchEntityEvents</code>, no <code>fromBlock</code>). The chain is shared, so we keep events where a trusted desk is the owner.</p>
+      <section class="grid two" id="verify">
+        <div class="card dark">
+          <div class="card-head"><h2>Live entity events</h2><span class="pill">WebSocket</span></div>
+          <p class="muted">Browser → Arkiv WebSocket directly (<code>watchEntityEvents</code>, no <code>fromBlock</code>). We keep events where a trusted desk is the owner.</p>
           <ul id="feed" class="feed"><li class="muted">Waiting for events…</li></ul>
         </div>
         <div class="card">
-          <h2>Verify without us</h2>
-          <p class="muted">Our server is a convenience, not the source of truth. Run the same query straight from your browser against the public Arkiv RPC, or from a terminal with <code>npx tsx scripts/verify.ts</code>.</p>
+          <div class="card-head"><h2>Verify without us</h2><span class="pill">no backend</span></div>
+          <p class="muted">Our server is a convenience, not the source of truth. Run the same query from your browser against the public Arkiv RPC, or from a terminal with <code>npm run verify</code>.</p>
           <button id="verifyBtn">Run the overdue query from this browser</button>
           <div id="verifyOut" class="out"></div>
           <pre id="verifyCode" class="code"></pre>
@@ -89,7 +113,7 @@
     </main>
 
     <dialog id="detail"><div id="detailBody"></div><form method="dialog"><button class="ghost">Close</button></form></dialog>
-    <footer>MIT · <a href="https://github.com/shivamKumarG11/jawab-do">source</a> · <a href="https://github.com/shivamKumarG11/jawab-do/blob/main/arkiv/schema.md">data contract</a> · built on Arkiv, the Web3 database</footer>
+    <footer>MIT · <a href="https://github.com/shivamKumarG11/jawab-do">source</a> · <a href="https://github.com/shivamKumarG11/jawab-do/blob/main/arkiv/schema.md">data contract</a> · <a href="https://github.com/shivamKumarG11/jawab-do/blob/main/arkiv/friction.md">friction report</a> · built on Arkiv, the Web3 database</footer>
     <script type="module" src="/src/web/main.ts"></script>
   </body>
 </html>
