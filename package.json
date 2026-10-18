@@ -1,0 +1,24 @@
+{
+  "name": "jawab-do",
+  "version": "1.0.0",
+  "description": "A public, tamper-proof deadline clock for India's Right to Information (RTI) requests, built on Arkiv, the Web3 database (Tiramisu testnet).",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "private": "true",
+  "dependencies": {
+    "@arkiv-network/sdk": "0.8.1",
+    "viem": "2.57.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
+  }
+}
