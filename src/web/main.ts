@@ -5,6 +5,7 @@ import { tiramisu } from "@arkiv-network/sdk/chains"
 import { eq, lt } from "@arkiv-network/sdk/query"
 import { custom, http, webSocket, type Hex } from "viem"
 import { escalateSecondAppeal, fileFirstAppeal, keepAlive, markReplied } from "../shared/ops"
+import { collectPages } from "../shared/pages"
 import {
   BASIS, BURN, CATEGORIES, PROJECT, STAGES, authorityLabel, isOverdue,
   type EventView, type RequestView,
@@ -76,6 +77,7 @@ async function loadScorecard() {
 
 // ---------- List ----------
 let cursor: string | null = null
+let asOf: number | undefined
 function filterQs(extra: Record<string, string> = {}) {
   const fd = new FormData($<HTMLFormElement>("filters"))
   const p = new URLSearchParams()
@@ -95,14 +97,26 @@ const card = (r: RequestView) => `
   </article>`
 
 async function loadList(append = false) {
-  const qs = filterQs(append && cursor ? { cursor } : {})
-  const res = await api<{ items: RequestView[]; cursor: string | null; query: string }>(`/api/requests?${qs}`)
-  cursor = res.cursor
-  $("more").hidden = !cursor
-  $("listQuery").textContent = res.query
-  const html = res.items.map(card).join("")
-  if (append) $("list").insertAdjacentHTML("beforeend", html)
-  else $("list").innerHTML = html || `<p class="muted">No matching requests.</p>`
+  if (!append) asOf = undefined
+  const extra = append && cursor ? { cursor, ...(asOf === undefined ? {} : { asOf: String(asOf) }) } : {}
+  try {
+    const qs = filterQs(extra)
+    const res = await api<{ items: RequestView[]; cursor: string | null; query: string; asOf: number }>(`/api/requests?${qs}`)
+    cursor = res.cursor
+    asOf = res.asOf
+    $("more").hidden = !cursor
+    $("listQuery").textContent = res.query
+    const html = res.items.map(card).join("")
+    if (append) $("list").insertAdjacentHTML("beforeend", html)
+    else $("list").innerHTML = html || `<p class="muted">No matching requests.</p>`
+  } catch (e) {
+    cursor = null
+    asOf = undefined
+    $("more").hidden = true
+    const error = `<p class="bad">${esc((e as Error).message)}</p>`
+    if (append) $("list").insertAdjacentHTML("beforeend", error)
+    else $("list").innerHTML = error
+  }
 }
 
 // ---------- Detail ----------
@@ -131,11 +145,11 @@ async function openDetail(k: string) {
       ${r.faaDueAt ? `<tr><td>Appeal decision due</td><td>${new Date(r.faaDueAt).toLocaleString("en-IN")}</td></tr>` : ""}
       <tr><td><code>$creator</code> (never changes)</td><td>${who(r.creator)}</td></tr>
       <tr><td><code>$owner</code> (can update it now)</td><td>${who(r.owner)}</td></tr>
-      <tr><td>Entity Expiration</td><td>${lifetime(r)}: the end of the legal remedy for this stage</td></tr>
+      <tr><td>Entity Expiration</td><td>${lifetime(r)}: demo retention based on ordinary appeal periods, not a legal cutoff; late appeals may be admitted for sufficient cause</td></tr>
       <tr><td>Flags</td><td>${r.permissionlessExtension ? "permissionlessExtension: anyone can keep it alive" : "none"}</td></tr>
       <tr><td>Entity key</td><td><code class="small">${esc(r.key)}</code></td></tr>
     </table>
-    <h3>Timeline <small class="muted">immutable events: readonly, owned by the burn address</small></h3>
+    <h3>Timeline <small class="muted">readonly events: burn-owned for their lifetime</small></h3>
     <ol class="timeline">${d.events
       .map((e) => `<li><b>${esc(e.kind.replace("_", " "))}</b> · ${new Date(e.at).toLocaleString("en-IN")} · ${esc(e.note ?? "")}
         <div class="small muted">created by ${who(e.creator)} · owner ${who(e.owner)} · ${e.readonly ? "readonly" : "editable"}</div></li>`)
@@ -145,7 +159,7 @@ async function openDetail(k: string) {
       ${relayOwned && can.reply ? `<button data-act="reply">Mark PIO reply received</button>` : ""}
       ${relayOwned && can.appeal ? `<button data-act="appeal">File first appeal</button>` : ""}
       ${relayOwned && can.escalate ? `<button data-act="escalate">Escalate to second appeal → legal-aid desk</button>` : ""}
-      ${can.hearing ? `<button data-act="hearing">Record Commission hearing (renews 90-day lease)</button>` : ""}
+      ${can.hearing ? `<button data-act="hearing">Record Commission hearing (adds 90 days to demo retention)</button>` : ""}
       ${can.handover ? `<span class="row"><input id="applicant" placeholder="Applicant wallet 0x…" /><button data-act="handover">Hand over</button></span>` : ""}
       <button data-act="keepalive" class="ghost">Keep alive +30 days with my wallet</button>
       ${!relayOwned ? `<button data-act="mm-reply" ${can.reply ? "" : "hidden"}>Mark replied (sign with my wallet)</button>
@@ -187,7 +201,8 @@ async function act(k: Hex, what: string, btn: HTMLButtonElement) {
     else if (what === "mm-appeal") res = await fileFirstAppeal(browserPub, await userWallet(), k)
     else if (what === "mm-escalate") res = await escalateSecondAppeal(browserPub, await userWallet(), k, cfg.legalAid)
     else res = await api(`/api/request/${k}/${what}`, what === "handover" ? { applicant: ($("applicant") as HTMLInputElement).value.trim() } : {})
-    const moved = res.newExpiry && String(res.newExpiry) !== "0" && String(res.previousExpiry) !== String(res.newExpiry)
+    const moved = res.newExpiry !== undefined && res.previousExpiry !== undefined && res.extended !== false &&
+      BigInt(res.newExpiry) > BigInt(res.previousExpiry)
       ? ` · Entity Expiration moved from block ${esc(res.previousExpiry)} to ${esc(res.newExpiry)}` : ""
     out.innerHTML = `✔ Done in one transaction ${txLink(res.txHash)}${moved}`
     await Promise.all([openDetail(k), refreshAll()])
@@ -204,10 +219,13 @@ function startFeed() {
   const wsPub = createPublicClient({ chain: tiramisu, transport: webSocket(cfg.wsUrl) })
   const live = $("live")
   let refreshTimer: number | undefined
-  let first = true
+  let receivedEvent = false
+  let hadError = false
   wsPub.watchEntityEvents({
     onEvent: (e) => {
-      if (first) { live.textContent = "Live: WebSocket connected"; live.className = "live on"; first = false }
+      receivedEvent = true
+      live.textContent = "Live: WebSocket connected"
+      live.className = "live on"
       const parties = [("owner" in e ? e.owner : ""), ("previousOwner" in e ? e.previousOwner : ""), ("newOwner" in e ? e.newOwner : "")]
       if (!parties.some((p) => p && ours.has(p.toLowerCase()))) return
       const feed = $("feed")
@@ -219,9 +237,9 @@ function startFeed() {
       clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(refreshAll, 1500)
     },
-    onError: () => { live.textContent = "Live: reconnecting…"; live.className = "live off" },
+    onError: () => { hadError = true; live.textContent = "Live: reconnecting…"; live.className = "live off" },
   })
-  setTimeout(() => { if (first) { live.textContent = "Live: WebSocket connected (quiet chain)"; live.className = "live on" } }, 8000)
+  setTimeout(() => { if (!receivedEvent && !hadError) { live.textContent = "Live: waiting for Arkiv events"; live.className = "live off" } }, 8000)
 }
 
 // ---------- Verify without us ----------
@@ -241,11 +259,20 @@ import { http } from "viem"
 
 const arkiv = createPublicClient({ chain: tiramisu, transport: http() })
 const overdue = await arkiv
-  .select({ key: true, attributes: true })
+  .select({ key: true, attributes: { ref: true, authority: true, due_at: true } })
   .where(eq("project", str("${PROJECT}")), eq("type", str("request")),
          eq("stage", str("awaiting_reply")), lt("due_at", u64(Date.now())))
   .createdBy("${cfg.desk}")   // trust comes from $creator
-  .fetch()
+  .limit(200)
+
+let page = await overdue.fetch()
+const block = page.blockNumber
+const entities = [...page.entities]
+while (page.hasNextPage()) {
+  page = await page.next()
+  entities.push(...page.entities)
+}
+console.log({ block, total: entities.length })
 
 // Query string sent to the node:
 // ${overdueBuilder().toString()}`
@@ -255,7 +282,7 @@ async function verifyDirect() {
   const out = $("verifyOut")
   out.innerHTML = `<span class="muted">Querying ${esc(tiramisu.rpcUrls.default.http[0])} directly…</span>`
   try {
-    const page = await overdueBuilder().fetch()
+    const page = await collectPages(await overdueBuilder().fetch())
     const by = new Map<string, number>()
     for (const e of page.entities) {
       const a = String(e.attributes?.authority?.value)

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: jawab-do
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.20.0
+      - key: ARKIV_ACCESS_KEY
+        sync: false
+      - key: DESK_KEY
+        sync: false
+      - key: LEGAL_AID_KEY
+        sync: false
+      - key: GLOBAL_WRITES_PER_DAY
+        value: "300"

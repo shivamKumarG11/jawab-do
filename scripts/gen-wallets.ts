@@ -8,12 +8,11 @@ const current = existsSync(path) ? readFileSync(path, "utf8") : ""
 const lines = current.split(/\r?\n/).filter(Boolean)
 
 for (const role of ROLES) {
-  let line = lines.find((l) => l.startsWith(`${role}=`))
-  if (!line) {
-    line = `${role}=${generatePrivateKey()}`
-    lines.push(line)
-  }
-  const address = privateKeyToAccount(line.slice(role.length + 1) as `0x${string}`).address
+  const index = lines.findIndex((l) => l.startsWith(`${role}=`))
+  if (index === -1) lines.push(`${role}=${generatePrivateKey()}`)
+  else if (!lines[index].slice(role.length + 1).trim()) lines[index] = `${role}=${generatePrivateKey()}`
+  const line = lines.find((l) => l.startsWith(`${role}=`))!
+  const address = privateKeyToAccount(line.slice(role.length + 1).trim() as `0x${string}`).address
   console.log(`${role.replace("_KEY", "").padEnd(10)} ${address}`)
 }
 if (!lines.some((l) => l.startsWith("ARKIV_ACCESS_KEY="))) lines.push("ARKIV_ACCESS_KEY=")

@@ -36,6 +36,8 @@ export const num = (e: Pick<Entity, "attributes">, name: string) => {
   const v = attr(e, name)
   return v === undefined ? undefined : Number(v)
 }
+export const isDemoRequest = (e: Pick<Entity, "attributes">) =>
+  attr(e, "project") === PROJECT && attr(e, "schema") === SCHEMA && attr(e, "type") === "request" && attr(e, "demo") === true
 
 // Converts a wall-clock time to a block height using the chain's own timing, so expiry comparisons are exact.
 async function blockAt(pub: Pub, ms: number) {
@@ -107,16 +109,26 @@ type Transition = {
   note: string
   set?: Record<string, ReturnType<typeof str> | ReturnType<typeof u64>>
   lifetimeEnd?: number
+  renewDays?: number
   newOwner?: Hex
 }
 
 async function transition(pub: Pub, wallet: Wallet, requestKey: Hex, t: Transition) {
   const r = await pub.getEntity(requestKey)
+  if (!isDemoRequest(r)) throw new Error("Only Jawab Do demo requests can be updated")
   if (r.owner.toLowerCase() !== me(wallet).toLowerCase())
     throw new Error(`Only the current owner ${r.owner} can update this request`)
   const [evK] = await pub.predictEntityKeys({ owner: me(wallet), count: 1 })
   const evExpiry = await blockAt(pub, Date.now() + EVENT_HORIZON)
-  const target = t.lifetimeEnd ? await blockAt(pub, t.lifetimeEnd) : 0n
+  let target = 0n
+  if (t.renewDays) {
+    const timing = await pub.getBlockTiming()
+    const base = r.expiresAt > timing.currentBlock ? r.expiresAt : timing.currentBlock
+    target = base + BigInt(Math.ceil(t.renewDays * 86_400 / timing.blockDuration))
+  } else if (t.lifetimeEnd) {
+    target = await blockAt(pub, t.lifetimeEnd)
+  }
+  const newExpiry = target > r.expiresAt ? target : r.expiresAt
   const res = await wallet.executeBatch({
     creates: [eventCreate(evK.salt, requestKey, r, t.kind, t.note, evExpiry)],
     patches: t.set ? [{ entityKey: requestKey, set: t.set }] : [],
@@ -127,7 +139,7 @@ async function transition(pub: Pub, wallet: Wallet, requestKey: Hex, t: Transiti
       ...(t.newOwner ? [{ entityKey: requestKey, newOwner: t.newOwner }] : []),
     ],
   })
-  return { txHash: res.txHash, eventKey: evK.key, extended: target > r.expiresAt, previousExpiry: r.expiresAt, newExpiry: target }
+  return { txHash: res.txHash, eventKey: evK.key, extended: target > r.expiresAt, previousExpiry: r.expiresAt, newExpiry }
 }
 
 const stageOf = (r: Entity) => String(attr(r, "stage")) as Stage
@@ -176,8 +188,8 @@ export async function recordHearing(pub: Pub, wallet: Wallet, requestKey: Hex) {
   if (stageOf(r) !== "second_appeal") throw new Error("Hearings happen in second appeal")
   return transition(pub, wallet, requestKey, {
     kind: "hearing",
-    note: "Commission hearing recorded; 90-day lease renewed",
-    lifetimeEnd: requestLifetimeEnd.secondAppealLease(Date.now()),
+    note: "Commission hearing recorded; demo retention extended by 90 days",
+    renewDays: 90,
   })
 }
 
@@ -192,6 +204,7 @@ export async function handOver(pub: Pub, wallet: Wallet, requestKey: Hex, applic
 // Anyone, with any wallet: permissionless Lifetime Extension of 30 days beyond the current expiry.
 export async function keepAlive(pub: Pub, wallet: Wallet, requestKey: Hex) {
   const r = await pub.getEntity(requestKey)
+  if (!isDemoRequest(r)) throw new Error("Only Jawab Do demo requests can be kept alive")
   const t = await pub.getBlockTiming()
   const target = r.expiresAt + BigInt((30 * 86_400) / t.blockDuration)
   const res = await wallet.extendEntity({ entityKey: requestKey, expires: ExpirationTime.atBlock(target) })

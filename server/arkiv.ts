@@ -5,7 +5,8 @@ import { tiramisu } from "@arkiv-network/sdk/chains"
 import { and, eq, gte, lt, lte, or } from "@arkiv-network/sdk/query"
 import { http, type Hex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import { attr, num } from "../src/shared/ops"
+import { attr, isDemoRequest, num } from "../src/shared/ops"
+import { collectPages } from "../src/shared/pages"
 import { PROJECT, isOverdue, type Basis, type EventKind, type EventView, type RequestView, type Stage } from "../src/shared/rti"
 
 const accessKey = process.env.ARKIV_ACCESS_KEY?.trim()
@@ -22,8 +23,8 @@ export const deskWallet = walletFor("DESK_KEY")
 export const legalWallet = walletFor("LEGAL_AID_KEY")
 
 // Trusted creators: from env (public addresses), falling back to the relay keys' addresses.
-export const DESK = (process.env.DESK_ADDRESS ?? deskWallet?.account.address ?? "") as Hex
-export const LEGAL_AID = (process.env.LEGAL_AID_ADDRESS ?? legalWallet?.account.address ?? "") as Hex
+export const DESK = (process.env.DESK_ADDRESS?.trim() || deskWallet?.account.address || "0x849C3840754cf21B0ec45BA359cCcde1F8ECEBd2") as Hex
+export const LEGAL_AID = (process.env.LEGAL_AID_ADDRESS?.trim() || legalWallet?.account.address || "0xb114Ab157311e6C15B74fb08789632671d45D9c2") as Hex
 const TRUSTED = new Set([DESK, LEGAL_AID].map((a) => a.toLowerCase()))
 export const isTrusted = (a: string) => TRUSTED.has(a.toLowerCase())
 
@@ -76,10 +77,11 @@ export type ListFilter = {
   due?: "overdue" | "week"
   scope?: "all" | "trusted"
   cursor?: string
+  asOf?: number
 }
 
 export function listQuery(f: ListFilter) {
-  const now = Date.now()
+  const now = f.asOf ?? Date.now()
   const preds = [eq("project", str(PROJECT)), eq("type", str("request"))]
   if (f.state) preds.push(eq("state", str(f.state)))
   if (f.authority) preds.push(eq("authority", str(f.authority)))
@@ -94,11 +96,12 @@ export function listQuery(f: ListFilter) {
 }
 
 export async function listRequests(f: ListFilter) {
-  const q = listQuery(f)
+  const asOf = f.asOf ?? Date.now()
+  const q = listQuery({ ...f, asOf })
   const page = await q.fetch()
   const items = await withExpiryMs(page.entities.map((e) => toRequest(e as Entity)))
   items.sort((a, b) => a.dueAt - b.dueAt)
-  return { items, cursor: page.cursor ?? null, block: page.blockNumber.toString(), query: q.toString() }
+  return { items, cursor: page.cursor ?? null, block: page.blockNumber.toString(), query: q.toString(), asOf }
 }
 
 // Department scorecard: trusted requests only. Overdue uses a numeric range on due_at.
@@ -132,13 +135,15 @@ export async function scorecard() {
 
 export async function requestDetail(k: Hex) {
   const e = await pub.getEntity(k)
+  if (!isDemoRequest(e)) throw new Error("Request not found")
   const [request] = await withExpiryMs([toRequest(e)])
   const evQ = pub
     .select({ key: true, owner: true, creator: true, expiresAt: true, creationFlags: true, attributes: true, payload: true })
     .where(eq("project", str(PROJECT)), eq("type", str("event")), eq("request", key(k)))
     .where(or(eq("$creator", addr(DESK)), eq("$creator", addr(LEGAL_AID)), eq("$creator", addr(e.owner))))
     .limit(50)
-  const events: EventView[] = (await evQ.fetch()).entities.map((x) => ({
+  const page = await collectPages(await evQ.fetch())
+  const events: EventView[] = page.entities.map((x) => ({
     key: x.key,
     kind: String(attr(x as Entity, "kind")) as EventKind,
     at: num(x as Entity, "at") ?? 0,

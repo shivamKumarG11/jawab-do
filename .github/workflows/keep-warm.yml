@@ -1,0 +1,35 @@
+name: Keep Judging Demo Warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: demo-keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    if: vars.LIVE_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      LIVE_URL: ${{ vars.LIVE_URL }}
+    steps:
+      - name: Ping The Render Health Endpoint Until October 24 UTC
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(date -u +%s)" -ge "$(date -u -d '2026-10-24T00:00:00Z' +%s)" ]; then
+            echo "Judging keep-warm period has ended."
+            exit 0
+          fi
+          if [[ ! "$LIVE_URL" =~ ^https://[A-Za-z0-9-]+\.onrender\.com/?$ ]]; then
+            echo "::error::Set LIVE_URL to the verified HTTPS Render service origin."
+            exit 1
+          fi
+          curl --fail --silent --show-error --retry 2 --retry-delay 10 --max-time 90 \
+            "${LIVE_URL%/}/api/health"

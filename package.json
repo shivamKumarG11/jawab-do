@@ -4,10 +4,10 @@
   "description": "A public, tamper-proof deadline clock for India's Right to Information (RTI) requests, built on Arkiv, the Web3 database (Tiramisu testnet).",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --import tsx --test --env-file-if-exists=.env tests/fixes.test.ts tests/read-only-fallback.test.ts",
     "dev": "vite",
     "build": "vite build",
-    "start": "tsx server/main.ts",
+    "start": "tsx --env-file-if-exists=.env server/main.ts",
     "typecheck": "tsc -p .",
     "seed": "tsx --env-file=.env scripts/seed.ts",
     "verify": "tsx scripts/verify.ts",
@@ -27,5 +27,8 @@
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "8.3.4"
+  },
+  "engines": {
+    "node": ">=22.20.0 <23"
   }
 }

@@ -4,6 +4,7 @@ import type { Hex } from "viem"
 import { isAddress } from "viem"
 import {
   escalateSecondAppeal, fileFirstAppeal, fileRequest, handOver, markReplied, recordHearing,
+  isDemoRequest,
 } from "../src/shared/ops"
 import { BASIS, CATEGORIES, CHAIN_ID, DEPARTMENTS, EXPLORER, PROJECT, SCHEMA, STATES, WS_URL, type Basis } from "../src/shared/rti"
 import {
@@ -56,11 +57,37 @@ const json = (res: ServerResponse, status: number, body: unknown) => {
 
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   const pre = (req as IncomingMessage & { body?: unknown }).body
-  if (pre && typeof pre === "object") return pre as Record<string, unknown>
-  let s = ""
-  for await (const c of req) s += c
-  if (s.length > 4096) throw new Error("Body too large")
-  return s ? JSON.parse(s) : {}
+  if (pre !== undefined) {
+    if (!pre || typeof pre !== "object" || Array.isArray(pre)) throw new Error("Body must be a JSON object")
+    const prototype = Object.getPrototypeOf(pre)
+    if (prototype !== Object.prototype && prototype !== null) throw new Error("Body must be a JSON object")
+    const serialized = JSON.stringify(pre)
+    if (serialized === undefined || Buffer.byteLength(serialized) > 4096) throw new Error("Body too large")
+    return pre as Record<string, unknown>
+  }
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const part of req) {
+    const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part)
+    size += chunk.byteLength
+    if (size > 4096) throw new Error("Body too large")
+    chunks.push(chunk)
+  }
+  const s = Buffer.concat(chunks, size).toString("utf8")
+  const body: unknown = s ? JSON.parse(s) : {}
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Body must be a JSON object")
+  return body as Record<string, unknown>
+}
+
+export function redact(text: string) {
+  const values = ["DESK_KEY", "LEGAL_AID_KEY", "SPOOFER_KEY", "ARKIV_ACCESS_KEY"]
+    .flatMap((name) => {
+      const value = process.env[name]
+      return value ? [value, value.trim()].filter(Boolean) : []
+    })
+    .sort((a, b) => b.length - a.length)
+  return values.reduce((safe, value) => safe.replaceAll(value, "[REDACTED]"), text)
+    .replace(/ark_live_[A-Za-z0-9_-]+/g, "[REDACTED]")
 }
 
 const ipOf = (req: IncomingMessage) =>
@@ -73,6 +100,9 @@ export async function handle(req: IncomingMessage, res: ServerResponse) {
   const path = url.pathname.replace(/\/+$/, "")
   const q = Object.fromEntries(url.searchParams)
   try {
+    if (req.method === "GET" && path === "/api/health")
+      return json(res, 200, { ok: true, project: PROJECT, schema: SCHEMA, time: Date.now() })
+
     if (req.method === "GET" && path === "/api/config")
       return json(res, 200, {
         project: PROJECT, schema: SCHEMA, chainId: CHAIN_ID, explorer: EXPLORER, wsUrl: WS_URL,
@@ -87,6 +117,12 @@ export async function handle(req: IncomingMessage, res: ServerResponse) {
         scope: q.scope === "trusted" ? "trusted" : "all", cursor: q.cursor || undefined,
       }
       if (q.ref) return json(res, 200, await findByRef(q.ref.trim().toUpperCase()))
+      const asOf = q.asOf === undefined ? undefined : Number(q.asOf)
+      if (q.asOf !== undefined && (!Number.isSafeInteger(asOf) || asOf! <= 0 || asOf! > Date.now() + 60_000))
+        return json(res, 400, { error: "Invalid asOf timestamp" })
+      if (f.cursor && f.due && asOf === undefined)
+        return json(res, 400, { error: "asOf is required with a due-filter cursor" })
+      f.asOf = asOf
       return json(res, 200, await cached(`list:${url.search}`, 5_000, () => listRequests(f)))
     }
 
@@ -105,7 +141,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse) {
       if (path === "/api/requests") {
         const { state, dept, basis, category } = body as Record<string, string>
         const filedDaysAgo = Math.min(60, Math.max(0, Number(body.filedDaysAgo ?? 0) | 0))
-        if (!STATES[state] || !DEPARTMENTS[dept] || !BASIS[basis as Basis] || !CATEGORIES[category])
+        if (!Object.hasOwn(STATES, state) || !Object.hasOwn(DEPARTMENTS, dept) || !Object.hasOwn(BASIS, basis) || !Object.hasOwn(CATEGORIES, category))
           return json(res, 400, { error: "Unknown state, department, basis or category" })
         const desk = deskWallet
         const out = await serial(DESK, () =>
@@ -117,7 +153,9 @@ export async function handle(req: IncomingMessage, res: ServerResponse) {
       const action = path.match(/^\/api\/request\/(0x[0-9a-fA-F]{64})\/(reply|appeal|escalate|hearing|handover)$/)
       if (action && isKey(action[1])) {
         const k = action[1]
-        const owner = (await pub.getEntity(k)).owner.toLowerCase()
+        const request = await pub.getEntity(k)
+        if (!isDemoRequest(request)) return json(res, 404, { error: "Not found" })
+        const owner = request.owner.toLowerCase()
         const signer = owner === DESK.toLowerCase() ? deskWallet : owner === LEGAL_AID.toLowerCase() ? legalWallet : undefined
         if (!signer)
           return json(res, 409, { error: `This request is owned by ${owner}. Only that wallet can update it: connect it and sign in your browser.` })
@@ -132,15 +170,21 @@ export async function handle(req: IncomingMessage, res: ServerResponse) {
             return handOver(pub, signer, k, to)
           },
         }[action[2] as "reply"]
-        const out = await serial(signer.account.address, run)
+        const out = await serial(signer.account.address, async () => {
+          const current = await pub.getEntity(k)
+          if (!isDemoRequest(current)) throw new Error("Request not found")
+          if (current.owner.toLowerCase() !== owner) throw new Error("Request owner changed; reload and retry")
+          return run()
+        })
         cache.clear()
         return json(res, 200, out)
       }
     }
     return json(res, 404, { error: "Not found" })
   } catch (e) {
-    const msg = (e as Error).message ?? String(e)
-    console.error("[api]", req.method, path, msg.slice(0, 500))
-    return json(res, /not found|NoEntityFound/i.test(msg) ? 404 : 400, { error: msg.split("\n")[0].slice(0, 300) })
+    const msg = redact((e as Error).message ?? String(e))
+    console.error("[api]", req.method, redact(path), msg.slice(0, 500))
+    const status = /owner changed/i.test(msg) ? 409 : /not found|NoEntityFound/i.test(msg) ? 404 : 400
+    return json(res, status, { error: msg.split("\n")[0].slice(0, 300) })
   }
 }

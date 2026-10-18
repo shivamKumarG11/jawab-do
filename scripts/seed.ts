@@ -41,7 +41,7 @@ const rows: Row[] = [
 ]
 
 // A demo applicant wallet (public address only; nobody holds this key in the app).
-const DEMO_APPLICANT = "0x00000000000000000000000000000000a11CE000" as Hex
+const DEMO_APPLICANT = "0x00000000000000000000000000000000a11ce000" as Hex
 
 const created: { ref: string; key: string; tx: string }[] = []
 for (const r of rows) {
